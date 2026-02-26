@@ -1,6 +1,6 @@
 # @zenzap-co/openclaw-plugin
 
-The official [Zenzap](https://zenzap.co) channel plugin for [OpenClaw](https://openclaw.ai). Connects your OpenClaw AI assistant to Zenzap so it can participate in team topics, manage tasks, and respond to messages.
+The official [Zenzap](https://zenzap.co) channel plugin for [OpenClaw](https://openclaw.ai). Connects your OpenClaw AI assistant to Zenzap so it can participate in team topics, manage tasks, and respond to messages. 
 
 ## Installation
 
