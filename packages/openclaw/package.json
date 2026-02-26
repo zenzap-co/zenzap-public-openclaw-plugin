@@ -22,6 +22,7 @@
     "build": "tsc",
     "prebuild": "npm run clean",
     "bundle": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --external:crypto --external:path --external:fs --external:os --external:module",
+    "prepack": "pnpm run bundle",
     "deploy:build": "pnpm bundle",
     "test": "vitest run",
     "test:watch": "vitest"
