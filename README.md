@@ -24,16 +24,6 @@ Restart the gateway to activate the plugin:
 openclaw gateway restart
 ```
 
-## What it does
-
-Once installed, the plugin:
-
-- **Listens** to all Zenzap topics the bot is a member of via long-polling
-- **Responds** to messages (with optional @mention gating per topic)
-- **Exposes tools** to the AI agent: send messages/images, create and manage topics, look up members, create and update tasks, fetch message history, and react to messages
-- **Transcribes audio** messages locally via Whisper (optional, falls back gracefully)
-- **Reports errors** and status to a configurable control topic
-
 ## Configuration
 
 Credentials are stored in your OpenClaw config. The setup wizard handles this automatically, but you can also configure manually:
