@@ -31,6 +31,10 @@ importers:
         version: 8.56.0(eslint@10.0.1)(typescript@5.9.3)
 
   packages/openclaw:
+    dependencies:
+      '@zenzap-co/sdk':
+        specifier: workspace:*
+        version: link:../sdk
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
