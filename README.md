@@ -38,7 +38,7 @@ Credentials are stored in your OpenClaw config. The setup wizard handles this au
 
 ## Documentation
 
-For details on the Zenzap API and capabilities available through this plugin, see the [Zenzap documentation](https://docs.zenzap.co/quickstart).
+For details on the Zenzap API and capabilities available through this plugin, see the [Zenzap documentation](https://docs.zenzap.co/api-reference/getting-started).
 
 
 ## License

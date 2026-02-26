@@ -26,9 +26,6 @@
     "test": "vitest run",
     "test:watch": "vitest"
   },
-  "dependencies": {
-    "@zenzap-co/sdk": "workspace:*"
-  },
   "engines": {
     "node": ">=22"
   },
@@ -41,6 +38,7 @@
     "directory": "packages/openclaw"
   },
   "devDependencies": {
+    "@zenzap-co/sdk": "workspace:*",
     "@types/node": "^22.0.0",
     "esbuild": "^0.27.3",
     "typescript": "^5.3.0",
