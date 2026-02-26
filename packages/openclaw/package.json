@@ -1,0 +1,65 @@
+{
+  "name": "@zenzap-co/openclaw-plugin",
+  "version": "0.1.0",
+  "description": "Zenzap channel plugin for OpenClaw \u2014 AI assistant in your team topics",
+  "type": "module",
+  "license": "MIT",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist/",
+    "openclaw.plugin.json",
+    "skills/"
+  ],
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "tsc",
+    "prebuild": "npm run clean",
+    "bundle": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --external:crypto --external:path --external:fs --external:os --external:module",
+    "deploy:build": "pnpm bundle",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {},
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zenzap-co/zenzap-public-openclaw-plugin.git",
+    "directory": "packages/openclaw"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.27.3",
+    "typescript": "^5.3.0",
+    "vitest": "^4.0.18"
+  },
+  "openclaw": {
+    "extensions": [
+      "./dist/index.js"
+    ],
+    "channel": {
+      "id": "zenzap",
+      "label": "Zenzap",
+      "selectionLabel": "Zenzap (Team Chat)",
+      "docsPath": "/channels/zenzap",
+      "docsLabel": "zenzap",
+      "blurb": "AI assistant in your Zenzap team topics.",
+      "order": 90
+    },
+    "install": {
+      "npmSpec": "@zenzap-co/openclaw-plugin",
+      "defaultChoice": "npm"
+    }
+  }
+}

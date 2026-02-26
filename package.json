@@ -1,0 +1,24 @@
+{
+  "name": "@zenzap-co/openclaw-plugin",
+  "private": true,
+  "packageManager": "pnpm@10.30.0",
+  "scripts": {
+    "build": "pnpm -r run build",
+    "format": "prettier --write 'packages/*/src/**/*.ts'",
+    "format:check": "prettier --check 'packages/*/src/**/*.ts'",
+    "lint": "eslint 'packages/*/src/**/*.ts'",
+    "lint:fix": "eslint --fix 'packages/*/src/**/*.ts'",
+    "changeset": "changeset",
+    "version": "changeset version",
+    "release": "pnpm build && pnpm --filter @zenzap-co/openclaw-plugin run bundle && changeset publish"
+  },
+  "devDependencies": {
+    "@changesets/changelog-github": "^0.5.2",
+    "@changesets/cli": "^2.29.8",
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.0.1",
+    "prettier": "^3.8.1",
+    "typescript": "^5.3.0",
+    "typescript-eslint": "^8.56.0"
+  }
+}

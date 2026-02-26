@@ -1,0 +1,107 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      type:
+        description: "Release type"
+        required: true
+        type: choice
+        options:
+          - dev
+          - stable
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Version or Publish (stable)
+    if: ${{ github.event.inputs.type == 'stable' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "pnpm"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build all packages
+        run: pnpm run build
+
+      - name: Bundle openclaw plugin (inlines SDK)
+        run: pnpm --filter @zenzap-co/openclaw-plugin run bundle
+
+      - name: Run tests
+        run: pnpm --filter @zenzap-co/openclaw-plugin run test
+
+      - name: Create Release PR or Publish
+        id: changesets
+        uses: changesets/action@v1
+        with:
+          version: pnpm version
+          publish: pnpm release
+          title: "chore: version packages"
+          commit: "chore: version packages"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "false"
+
+  publish-dev:
+    name: Publish dev snapshot
+    if: ${{ github.event.inputs.type == 'dev' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "pnpm"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build SDK
+        run: pnpm --filter @zenzap-co/sdk run build
+
+      - name: Run tests
+        run: pnpm --filter @zenzap-co/openclaw-plugin run test
+
+      - name: Bundle openclaw plugin (inlines SDK)
+        run: pnpm --filter @zenzap-co/openclaw-plugin run bundle
+
+      - name: Stamp dev version
+        run: |
+          SHA=$(git rev-parse --short HEAD)
+          BASE=$(node -p "require('./packages/openclaw/package.json').version")
+          pnpm --filter @zenzap-co/openclaw-plugin exec \
+            npm version "${BASE}-dev.${SHA}" --no-git-tag-version
+
+      - name: Publish dev snapshot
+        run: npm publish --tag dev --access public
+        working-directory: packages/openclaw

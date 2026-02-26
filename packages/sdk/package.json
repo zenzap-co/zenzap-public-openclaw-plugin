@@ -1,0 +1,39 @@
+{
+  "name": "@zenzap-co/sdk",
+  "version": "0.1.0",
+  "description": "Zenzap JavaScript SDK — API client with TypeScript types",
+  "type": "module",
+  "license": "MIT",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist/"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zenzap-co/zenzap-public-openclaw-plugin.git",
+    "directory": "packages/sdk"
+  },
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "tsc",
+    "prebuild": "npm run clean",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.3.0"
+  }
+}

@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.pnpm-store/
+*.tgz
+.DS_Store
+*.log
+.env*
+
+# Personal deploy configs
+packages/*/deploy.sh
+
+.claude
+.planning

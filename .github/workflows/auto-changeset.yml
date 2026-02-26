@@ -1,0 +1,90 @@
+name: Auto Changeset
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+jobs:
+  create-changeset:
+    name: Generate changeset from PR title
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Generate changeset
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          # Determine bump type from conventional commit prefix
+          BUMP="patch"
+          if echo "$PR_TITLE" | grep -qE '^feat!:|^fix!:|BREAKING CHANGE'; then
+            BUMP="major"
+          elif echo "$PR_TITLE" | grep -qE '^feat(\(.+\))?:'; then
+            BUMP="minor"
+          fi
+
+          # Determine which packages changed
+          CHANGED_FILES=$(git diff --name-only origin/main~1 origin/main 2>/dev/null || git diff --name-only HEAD~1 HEAD)
+
+          OPENCLAW_CHANGED=false
+          SDK_CHANGED=false
+
+          if echo "$CHANGED_FILES" | grep -q '^packages/openclaw/'; then
+            OPENCLAW_CHANGED=true
+          fi
+          if echo "$CHANGED_FILES" | grep -q '^packages/sdk/'; then
+            SDK_CHANGED=true
+          fi
+
+          # Default to openclaw if nothing specific detected
+          if [ "$OPENCLAW_CHANGED" = "false" ] && [ "$SDK_CHANGED" = "false" ]; then
+            OPENCLAW_CHANGED=true
+          fi
+
+          # Build frontmatter
+          FRONTMATTER="---"
+          if [ "$OPENCLAW_CHANGED" = "true" ]; then
+            FRONTMATTER="$FRONTMATTER
+          \"@zenzap-co/openclaw-plugin\": $BUMP"
+          fi
+          if [ "$SDK_CHANGED" = "true" ]; then
+            FRONTMATTER="$FRONTMATTER
+          \"@zenzap-co/sdk\": $BUMP"
+          fi
+          FRONTMATTER="$FRONTMATTER
+          ---"
+
+          # Strip conventional commit prefix from title for the description
+          DESCRIPTION=$(echo "$PR_TITLE" | sed 's/^[a-z]*!*([^)]*): //' | sed 's/^[a-z]*!*: //')
+
+          # Generate unique filename
+          CHANGESET_ID="pr-${PR_NUMBER}"
+          CHANGESET_FILE=".changeset/${CHANGESET_ID}.md"
+
+          # Write changeset file
+          cat > "$CHANGESET_FILE" << EOF
+          $FRONTMATTER
+
+          $DESCRIPTION
+          EOF
+
+          echo "Created $CHANGESET_FILE (bump: $BUMP)"
+          cat "$CHANGESET_FILE"
+
+      - name: Commit changeset
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .changeset/
+          git diff --staged --quiet || git commit -m "chore: add changeset for PR #${{ github.event.pull_request.number }}"
+          git push
