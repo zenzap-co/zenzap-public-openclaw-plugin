@@ -571,7 +571,6 @@ export class ZenzapListener {
 
     if (phase === 'created' && msg?.id && this.ctx.client) {
       this.ctx.client.markMessageRead(msg.id).catch(() => {});
-      this.ctx.client.addReaction(msg.id, '👀').catch(() => {});
     }
 
     const mentionRequired = this.shouldRequireMention(topicId, topic.memberCount);
