@@ -13,7 +13,7 @@ const { mockClient } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock('@zenzap/sdk', () => ({
+vi.mock('@zenzap-co/sdk', () => ({
   getClient: () => mockClient,
 }));
 
