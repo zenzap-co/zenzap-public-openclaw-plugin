@@ -179,16 +179,40 @@ export class ZenzapListener {
   private isBotMentioned(msg: any): boolean {
     const { botMemberId } = this.ctx;
     if (!botMemberId) return false;
+    const normalizeProfileId = (value: string) => value.toLowerCase().replace(/^b@/, '');
     const botId = botMemberId.toLowerCase();
+    const botIdNormalized = normalizeProfileId(botId);
 
     const text = typeof msg?.text === 'string' ? msg.text : '';
-    if (text.toLowerCase().includes(botId)) return true;
+    const mentionTokens = [...text.matchAll(/<@([^>\s]+)>/g)].map((m) => String(m[1] ?? '').trim());
+    if (
+      mentionTokens.some((token) => {
+        const tokenLower = token.toLowerCase();
+        return tokenLower === botId || normalizeProfileId(tokenLower) === botIdNormalized;
+      })
+    ) {
+      return true;
+    }
 
     const mentionedProfiles = Array.isArray(msg?.mentionedProfiles) ? msg.mentionedProfiles : [];
-    if (mentionedProfiles.some((id: any) => String(id).toLowerCase() === botId)) return true;
+    if (
+      mentionedProfiles.some((id: any) => {
+        const idLower = String(id ?? '').toLowerCase();
+        return idLower === botId || normalizeProfileId(idLower) === botIdNormalized;
+      })
+    ) {
+      return true;
+    }
 
     const mentions = Array.isArray(msg?.mentions) ? msg.mentions : [];
-    if (mentions.some((m: any) => String(m?.id ?? '').toLowerCase() === botId)) return true;
+    if (
+      mentions.some((m: any) => {
+        const idLower = String(m?.id ?? '').toLowerCase();
+        return idLower === botId || normalizeProfileId(idLower) === botIdNormalized;
+      })
+    ) {
+      return true;
+    }
 
     return false;
   }
@@ -293,11 +317,10 @@ export class ZenzapListener {
   private formatMentions(mentions: any): string | null {
     if (!Array.isArray(mentions) || mentions.length === 0) return null;
     const lines = mentions
-      .filter((m: any) => m?.widgetId || m?.id || m?.name)
+      .filter((m: any) => m?.id || m?.name)
       .map((m: any) => {
-        const display = m.name ?? m.id ?? m.widgetId;
+        const display = m.name ?? m.id;
         const parts: string[] = [`"${display}"`];
-        if (m.widgetId) parts.push(`referenced in text as "${m.widgetId}"`);
         if (m.id) parts.push(`memberId=${m.id}`);
         return `- ${parts.join(', ')}`;
       });

@@ -41,12 +41,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - name: Build all packages
-        run: pnpm run build
-
-      - name: Bundle openclaw plugin (inlines SDK)
-        run: pnpm --filter @zenzap-co/openclaw-plugin run bundle
-
       - name: Run tests
         run: pnpm --filter @zenzap-co/openclaw-plugin run test
 
