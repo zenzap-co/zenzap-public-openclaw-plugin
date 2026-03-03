@@ -80,14 +80,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - name: Build SDK
-        run: pnpm --filter @zenzap-co/sdk run build
-
       - name: Run tests
         run: pnpm --filter @zenzap-co/openclaw-plugin run test
-
-      - name: Bundle openclaw plugin (inlines SDK)
-        run: pnpm --filter @zenzap-co/openclaw-plugin run bundle
 
       - name: Stamp dev version
         run: |
