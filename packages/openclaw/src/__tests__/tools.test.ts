@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { mockClient } = vi.hoisted(() => ({
   mockClient: {
+    sendMessage: vi.fn(),
     createTask: vi.fn(),
     updateTask: vi.fn(),
     sendImageMessage: vi.fn(),
@@ -12,7 +13,7 @@ const { mockClient } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock('@zenzap-co/sdk', () => ({
+vi.mock('@zenzap/sdk', () => ({
   getClient: () => mockClient,
 }));
 
@@ -20,6 +21,7 @@ import { executeTool } from '../tools.js';
 
 describe('executeTool task operations', () => {
   beforeEach(() => {
+    mockClient.sendMessage.mockReset();
     mockClient.createTask.mockReset();
     mockClient.updateTask.mockReset();
     mockClient.sendImageMessage.mockReset();
@@ -27,6 +29,7 @@ describe('executeTool task operations', () => {
     mockClient.listTopics.mockReset();
     mockClient.listTasks.mockReset();
     mockClient.getTask.mockReset();
+    mockClient.sendMessage.mockResolvedValue({ id: 'msg-text-1' });
     mockClient.createTask.mockResolvedValue({ id: 'task-1' });
     mockClient.updateTask.mockResolvedValue({ id: 'task-1', updatedAt: 1 });
     mockClient.sendImageMessage.mockResolvedValue({ id: 'msg-1' });
@@ -50,6 +53,65 @@ describe('executeTool task operations', () => {
       assignee: 'user-1',
       dueDate: undefined,
     });
+  });
+
+  it('adds mention tokens when zenzap_send_message receives mentions', async () => {
+    await executeTool('zenzap_send_message', {
+      topicId: 'topic-1',
+      text: 'Please review this',
+      mentions: ['550e8400-e29b-41d4-a716-446655440001'],
+    });
+
+    expect(mockClient.sendMessage).toHaveBeenCalledWith({
+      topicId: 'topic-1',
+      text: 'Please review this <@550e8400-e29b-41d4-a716-446655440001>',
+    });
+  });
+
+  it('does not duplicate existing mention tokens in zenzap_send_message', async () => {
+    await executeTool('zenzap_send_message', {
+      topicId: 'topic-1',
+      text: 'Hi <@550e8400-e29b-41d4-a716-446655440001>',
+      mentions: ['550e8400-e29b-41d4-a716-446655440001', '<@550e8400-e29b-41d4-a716-446655440001>'],
+    });
+
+    expect(mockClient.sendMessage).toHaveBeenCalledWith({
+      topicId: 'topic-1',
+      text: 'Hi <@550e8400-e29b-41d4-a716-446655440001>',
+    });
+  });
+
+  it('ignores malformed mention IDs in zenzap_send_message', async () => {
+    await executeTool('zenzap_send_message', {
+      topicId: 'topic-1',
+      text: 'Please review this',
+      mentions: ['<@not-an-id>', 'javascript:alert(1)', '550e8400-e29b-41d4-a716-446655440001'],
+    });
+
+    expect(mockClient.sendMessage).toHaveBeenCalledWith({
+      topicId: 'topic-1',
+      text: 'Please review this <@550e8400-e29b-41d4-a716-446655440001>',
+    });
+  });
+
+  it('rejects zenzap_send_message when topicId is missing', async () => {
+    await expect(
+      executeTool('zenzap_send_message', {
+        topicId: '   ',
+        text: 'Hello',
+      }),
+    ).rejects.toThrow('topicId is required and must be a non-empty string');
+    expect(mockClient.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('rejects zenzap_send_message when text is not a string', async () => {
+    await expect(
+      executeTool('zenzap_send_message', {
+        topicId: 'topic-1',
+        text: { body: 'hello' },
+      }),
+    ).rejects.toThrow('text must be a string');
+    expect(mockClient.sendMessage).not.toHaveBeenCalled();
   });
 
   it('updates task status when topicId is provided', async () => {

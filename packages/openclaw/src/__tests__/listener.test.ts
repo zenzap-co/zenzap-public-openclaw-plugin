@@ -200,7 +200,24 @@ describe('ZenzapListener', () => {
         requireMention: (_topicId, memberCount) => memberCount > 2,
       });
       await listener['discoverTopics']();
-      await listener['onEvent'](makeMessageEvent('topic-1', 'hey @b@bot-uuid can you help?'));
+      await listener['onEvent'](makeMessageEvent('topic-1', 'hey <@b@bot-uuid> can you help?'));
+      expect(sendMessage).toHaveBeenCalledOnce();
+      expect(sendMessage.mock.calls[0][0].metadata.botMentioned).toBe(true);
+    });
+
+    it('detects mention token with normalized profile id format <@profileId>', async () => {
+      const client = makeMockClient();
+      const listener = new ZenzapListener({
+        config: { apiKey: 't', apiSecret: 's', apiUrl: 'http://x', pollTimeout: 1 },
+        botMemberId: 'b@550e8400-e29b-41d4-a716-446655440003',
+        client: client as any,
+        sendMessage,
+        requireMention: () => true,
+      });
+      await listener['discoverTopics']();
+      await listener['onEvent'](
+        makeMessageEvent('topic-1', 'hi <@550e8400-e29b-41d4-a716-446655440003> please check'),
+      );
       expect(sendMessage).toHaveBeenCalledOnce();
       expect(sendMessage.mock.calls[0][0].metadata.botMentioned).toBe(true);
     });

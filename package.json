@@ -10,7 +10,7 @@
     "lint:fix": "eslint --fix 'packages/*/src/**/*.ts'",
     "changeset": "changeset",
     "version": "changeset version",
-    "release": "pnpm build && pnpm --filter @zenzap-co/openclaw-plugin run bundle && changeset publish"
+    "release": "changeset publish"
   },
   "devDependencies": {
     "@changesets/changelog-github": "^0.5.2",

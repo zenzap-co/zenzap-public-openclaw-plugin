@@ -1,7 +1,7 @@
 {
   "name": "@zenzap-co/openclaw-plugin",
-  "version": "0.1.0",
-  "description": "Zenzap channel plugin for OpenClaw \u2014 AI assistant in your team topics",
+  "version": "0.1.4",
+  "description": "Zenzap channel plugin for OpenClaw — AI assistant in your team topics",
   "type": "module",
   "license": "MIT",
   "main": "dist/index.js",
@@ -22,7 +22,7 @@
     "build": "tsc",
     "prebuild": "npm run clean",
     "bundle": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --external:crypto --external:path --external:fs --external:os --external:module",
-    "prepack": "pnpm run build && pnpm run bundle",
+    "prepack": "pnpm --filter @zenzap-co/sdk run build && pnpm run bundle",
     "deploy:build": "pnpm bundle",
     "test": "vitest run",
     "test:watch": "vitest"

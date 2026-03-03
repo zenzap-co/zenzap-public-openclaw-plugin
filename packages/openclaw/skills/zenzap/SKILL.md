@@ -47,6 +47,7 @@ You may also add a reaction (✅, 👍, ❤️) in addition to your reply, but n
 - `zenzap_send_message` for text messages
 - `zenzap_send_image` for image uploads from URL or base64 data (with optional caption)
 - Only when explicitly asked to post somewhere, or to send to a different topic than the current one.
+- To @mention someone in an outgoing message, pass their profile ID in `zenzap_send_message.mentions` (the tool adds `<@profileId>` in text).
 
 ## Mentions and response policy
 
@@ -58,18 +59,18 @@ If the topic requires @mention and you were NOT mentioned, you will be placed in
 
 ## Inline member mentions
 
-When a message contains @tags, a **Mentioned members** block is appended. Each entry tells you the person's name, what placeholder they appear as in the text, and their member ID:
+When a message contains @tags, a **Mentioned members** block is appended. Each entry gives the person's name and member ID.
 
-```
-Hey w1 can you handle this?
+``` 
+Hey can you handle this?
 
 Mentioned members:
-- "John Smith", referenced in text as "w1", memberId=d5ee4602-ff17-4756-a761-d7ab7d3c53b0
+- "John Smith", memberId=d5ee4602-ff17-4756-a761-d7ab7d3c53b0
 ```
 
-When you see an unfamiliar token in the message text (like `w1`), check the Mentioned members list — it tells you exactly who that token refers to.
-
 Use the `memberId` directly when assigning tasks, adding/removing members from topics, or any other operation that requires a member ID — no need to call `zenzap_list_members` for someone already in the Mentioned members list.
+
+When you need to ping someone in your reply, use their member ID in `zenzap_send_message.mentions` so they are explicitly @mentioned.
 
 ## What you know about Zenzap
 
