@@ -57,16 +57,14 @@ export interface ZenzapContact {
 
 /**
  * Represents an inline @mention in a message.
- * The message `text` field contains widget placeholders keyed by widgetId (e.g. "w1").
- * This object maps each placeholder to the real member: widgetId → { id (profileId), name }.
+ * Mention tokens in message text are preserved as `<@profileId>`.
+ * Use `id` (profileId) as the stable identifier for external integrations.
  */
 export interface ZenzapMention {
   /** The member's UUID (profileId) */
   id?: string;
   /** The member's display name */
   name?: string;
-  /** Placeholder key that appears in the message text — look up this value in the text to find where the mention is */
-  widgetId?: string;
 }
 
 export interface ZenzapMember {

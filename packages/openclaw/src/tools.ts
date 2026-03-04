@@ -4,6 +4,35 @@
 
 import { getClient } from '@zenzap-co/sdk';
 
+const PROFILE_ID_PATTERN = /^(?:[ub]@)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function normalizeMentionIds(raw: unknown): string[] {
+  const values = Array.isArray(raw) ? raw : typeof raw === 'string' ? [raw] : [];
+  const cleaned = values
+    .map((value) => String(value).trim())
+    .filter((value) => value.length > 0)
+    .map((value) => {
+      // Accept raw ids or already-wrapped tokens like <@...>.
+      const match = /^<@([^>\s]+)>$/.exec(value);
+      const id = (match ? match[1] : value).trim();
+      return PROFILE_ID_PATTERN.test(id) ? id : null;
+    })
+    .filter((value): value is string => value !== null);
+  return [...new Set(cleaned)];
+}
+
+function applyMentionsToText(text: string, mentionIds: string[]): string {
+  if (!mentionIds.length) return text;
+
+  const missingTokens = mentionIds
+    .map((id) => `<@${id}>`)
+    .filter((token) => !text.includes(token));
+
+  if (!missingTokens.length) return text;
+  if (!text.trim()) return missingTokens.join(' ');
+  return `${text} ${missingTokens.join(' ')}`;
+}
+
 export const tools = [
   {
     id: 'zenzap_get_me',
@@ -25,6 +54,12 @@ export const tools = [
       properties: {
         topicId: { type: 'string', description: 'UUID of the target topic' },
         text: { type: 'string', description: 'Message text (max 10000 characters)' },
+        mentions: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Optional member profile IDs to @mention. The tool appends missing <@profileId> tokens to text.',
+        },
       },
       required: ['topicId', 'text'],
     },
@@ -307,8 +342,18 @@ export async function executeTool(toolId: string, input: any): Promise<any> {
     case 'zenzap_get_me':
       return client.getCurrentMember();
 
-    case 'zenzap_send_message':
-      return client.sendMessage({ topicId: input.topicId, text: input.text });
+    case 'zenzap_send_message': {
+      const topicId = typeof input?.topicId === 'string' ? input.topicId.trim() : '';
+      if (!topicId) {
+        throw new Error('topicId is required and must be a non-empty string.');
+      }
+      if (typeof input?.text !== 'string') {
+        throw new Error('text must be a string.');
+      }
+      const mentionIds = normalizeMentionIds(input.mentions);
+      const text = applyMentionsToText(input.text, mentionIds);
+      return client.sendMessage({ topicId, text });
+    }
 
     case 'zenzap_send_image': {
       const hasImageUrl = typeof input.imageUrl === 'string' && input.imageUrl.trim().length > 0;

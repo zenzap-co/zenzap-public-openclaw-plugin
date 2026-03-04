@@ -271,7 +271,6 @@ async function runSetupFlow(
   );
 
   await prompter.outro(botName ? `✅ Setup complete! ${botName} is ready.` : '✅ Setup complete!');
-  await prompter.note('Run `openclaw gateway restart` to apply the new configuration.', 'Next step');
 
   return { botName, botMemberId, controlTopicId };
 }
@@ -710,7 +709,7 @@ const plugin = {
                   `- Toggle mention gating (zenzap_set_mention_policy)`,
                   `- List/get/create/update tasks (zenzap_list_tasks, zenzap_get_task, zenzap_create_task, zenzap_update_task)`,
                   `- Check message history (zenzap_get_messages)`,
-                  `- Send text/images to topics (zenzap_send_message, zenzap_send_image)`,
+                  `- Send text/images to topics (zenzap_send_message, zenzap_send_image); use zenzap_send_message.mentions to @mention members`,
                   ``,
                   `## Current message`,
                   `- Message ID: ${msg.metadata?.messageId} (use this with zenzap_react to react to THIS message)`,
@@ -1100,7 +1099,6 @@ const plugin = {
                     console.log('✅ Setup complete!');
                   }
                   console.log('');
-                  console.log('Run `openclaw gateway restart` to apply the new configuration.');
                 } catch (err: any) {
                   console.error(`Setup failed: ${err.message}`);
                   process.exitCode = 1;

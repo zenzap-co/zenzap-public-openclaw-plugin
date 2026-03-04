@@ -3,11 +3,12 @@ name: Auto Changeset
 on:
   pull_request:
     types: [opened, edited, synchronize]
+    branches: [main]
 
 jobs:
   create-changeset:
     name: Generate changeset from PR title
-    if: ${{ !startsWith(github.event.pull_request.title, 'chore: version packages') }}
+    if: "${{ !startsWith(github.event.pull_request.title, 'chore: version packages') }}"
     runs-on: ubuntu-latest
     permissions:
       contents: write
