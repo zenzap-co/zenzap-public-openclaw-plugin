@@ -41,6 +41,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      - name: Build SDK
+        run: pnpm --filter @zenzap-co/sdk run build
+
       - name: Run tests
         run: pnpm --filter @zenzap-co/openclaw-plugin run test
 
@@ -79,6 +82,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install
+
+      - name: Build SDK
+        run: pnpm --filter @zenzap-co/sdk run build
 
       - name: Run tests
         run: pnpm --filter @zenzap-co/openclaw-plugin run test
