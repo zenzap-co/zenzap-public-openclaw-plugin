@@ -41,6 +41,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      - name: Build SDK
+        run: pnpm --filter @zenzap-co/sdk run build
+
       - name: Run tests
         run: pnpm --filter @zenzap-co/openclaw-plugin run test
 
@@ -80,6 +83,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      - name: Build SDK
+        run: pnpm --filter @zenzap-co/sdk run build
+
       - name: Run tests
         run: pnpm --filter @zenzap-co/openclaw-plugin run test
 
@@ -88,7 +94,7 @@ jobs:
           SHA=$(git rev-parse --short HEAD)
           BASE=$(node -p "require('./packages/openclaw/package.json').version")
           pnpm --filter @zenzap-co/openclaw-plugin exec \
-            npm version "${BASE}-dev.${SHA}" --no-git-tag-version
+            npm version "${BASE}-dev.${SHA}" --no-git-tag-version --ignore-scripts
 
       - name: Publish dev snapshot
         run: pnpm publish --tag dev --access public --no-git-checks
