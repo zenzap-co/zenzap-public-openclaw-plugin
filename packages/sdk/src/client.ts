@@ -24,6 +24,8 @@ import type {
   ZenzapMember,
   ZenzapMessage,
   ZenzapTask,
+  ZenzapPoll,
+  ZenzapPollVoteCreateResponse,
   ZenzapTopicMessagesResponse,
   ZenzapMembersListResponse,
   ZenzapTopicsListResponse,
@@ -255,6 +257,37 @@ export class ZenzapClient {
       ...(Number.isFinite(options.dueDate) && { dueDate: options.dueDate }),
       ...(options.externalId && { externalId: options.externalId }),
     });
+  }
+
+  /** POST /v2/polls */
+  async createPoll(options: {
+    topicId: string;
+    question: string;
+    options: string[];
+    selectionType: 'single' | 'multiple';
+    subtitle?: string;
+    anonymous?: boolean;
+    expiresAt?: number;
+  }): Promise<ZenzapPoll> {
+    return this.request('POST', '/v2/polls', {
+      topicId: options.topicId,
+      question: options.question,
+      options: options.options,
+      selectionType: options.selectionType,
+      ...(options.subtitle && { subtitle: options.subtitle }),
+      ...(options.anonymous !== undefined && { anonymous: options.anonymous }),
+      ...(Number.isFinite(options.expiresAt) && { expiresAt: options.expiresAt }),
+    });
+  }
+
+  /** POST /v2/polls/:attachmentId/votes */
+  async castPollVote(attachmentId: string, optionId: string): Promise<ZenzapPollVoteCreateResponse> {
+    return this.request('POST', `/v2/polls/${attachmentId}/votes`, { optionId });
+  }
+
+  /** DELETE /v2/polls/:attachmentId/votes/:voteId */
+  async deletePollVote(attachmentId: string, voteId: string): Promise<void> {
+    return this.request('DELETE', `/v2/polls/${attachmentId}/votes/${voteId}`);
   }
 
   /** PATCH /v2/tasks/:taskId */

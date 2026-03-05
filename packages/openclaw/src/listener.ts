@@ -248,6 +248,14 @@ export class ZenzapListener {
         await this.handleTopicUpdated(event);
         break;
 
+      case 'poll_vote.created':
+        await this.handlePollVote(event, 'created');
+        break;
+
+      case 'poll_vote.deleted':
+        await this.handlePollVote(event, 'deleted');
+        break;
+
       // Intentionally ignored
       case 'message.deleted':
       case 'reaction.added':
@@ -326,6 +334,40 @@ export class ZenzapListener {
       });
     if (!lines.length) return null;
     return `Mentioned members:\n${lines.join('\n')}`;
+  }
+
+  private formatPoll(poll: any): string | null {
+    if (!poll) return null;
+
+    // Cap free-text fields to prevent prompt injection via crafted poll content.
+    const cap = (s: string, max = 200) => (s.length > max ? `${s.slice(0, max)}…` : s);
+    // Sanitize to remove control characters that could disrupt prompt formatting.
+    const sanitize = (s: string) => s.replace(/[\r\n\t]/g, ' ').trim();
+    const clean = (s: string, max?: number) => cap(sanitize(s), max);
+
+    const parts: string[] = [];
+    if (poll.title) parts.push(`"${clean(String(poll.title))}"`);
+    if (poll.subtitle) parts.push(`subtitle="${clean(String(poll.subtitle))}"`);
+    // Include the attachment ID so the agent can pass it to zenzap_cast_poll_vote.
+    if (poll.id) parts.push(`attachmentId=${poll.id}`);
+    if (Array.isArray(poll.options) && poll.options.length) {
+      const opts = poll.options
+        .map((o: any) => {
+          if (typeof o === 'string') return clean(o, 100);
+          // Include optionId in brackets so the agent knows which id to vote with.
+          const id = o?.id ? `[${o.id}]` : '';
+          const text = o?.text ?? o?.id ?? '';
+          return text ? `${id} ${clean(String(text), 100)}`.trim() : '';
+        })
+        .filter(Boolean)
+        .join(' / ');
+      if (opts) parts.push(`options: ${opts}`);
+    }
+    if (poll.selectionType) parts.push(`type=${poll.selectionType}`);
+    if (poll.anonymous) parts.push('anonymous=true');
+    if (poll.status) parts.push(`status=${poll.status}`);
+    if (!parts.length) return null;
+    return `Poll: ${parts.join(' | ')}`;
   }
 
   private formatContact(contact: any): string | null {
@@ -440,6 +482,9 @@ export class ZenzapListener {
     const contactLine = this.formatContact(msg?.contact);
     if (contactLine) details.push(contactLine);
 
+    const pollLine = this.formatPoll(msg?.poll);
+    if (pollLine) details.push(pollLine);
+
     if (!body.length && !details.length) return '';
     if (!body.length) body.push(`[${messageType} message]`);
     if (!details.length) return body.join('\n');
@@ -472,6 +517,7 @@ export class ZenzapListener {
       'location',
       'task',
       'contact',
+      'poll',
       'parentId',
     ]);
     const touchedMeaningfulField = updatedFields.some((field: string) =>
@@ -612,6 +658,45 @@ export class ZenzapListener {
     if (!formattedBody) return;
 
     await this.dispatchMessageBody(event, topic, msg, formattedBody, botMentioned, mentionRequired, phase);
+  }
+
+  private async handlePollVote(event: any, phase: 'created' | 'deleted'): Promise<void> {
+    const { topicId, attachmentId, optionId, voterId, messageId, pollVoteId } = event.data ?? {};
+    if (!topicId || !attachmentId) {
+      this.log('info', `Dropping poll_vote.${phase}: missing topicId or attachmentId`, event.data);
+      return;
+    }
+
+    const topic = this.getTopicInfo(topicId);
+
+    this.log('info', `Poll vote ${phase}: voter=${voterId} option=${optionId} attachment=${attachmentId} topic=${topicId}`);
+
+    const action = phase === 'created' ? 'voted for' : 'removed vote for';
+    // messageId is included so the agent can fetch the poll message to resolve optionId → option text.
+    const msgHint = messageId ? ` (messageId=${messageId} — look up the poll message to resolve the option text)` : '';
+    const body = `[poll_vote.${phase}] voterId=${voterId} ${action} optionId=${optionId} on poll attachmentId=${attachmentId} ${msgHint}`;
+    try {
+      await this.ctx.sendMessage({
+        channel: 'zenzap',
+        conversation: topic.conversationId,
+        source: voterId,
+        text: body,
+        timestamp: new Date(event.createdAt || Date.now()).toISOString(),
+        metadata: {
+          topicId: topic.id,
+          topicName: topic.name,
+          messageId,
+          attachmentId,
+          pollVoteId,
+          optionId,
+          voterId,
+          eventType: `poll_vote.${phase}`,
+        },
+        raw: event,
+      });
+    } catch (err) {
+      this.log('error', 'Failed to dispatch poll vote event', err);
+    }
   }
 
   private async handleMemberAdded(event: any) {

@@ -31,6 +31,42 @@ You may also add a reaction (✅, 👍, ❤️) in addition to your reply, but n
 - Use `zenzap_update_task` to rename tasks, change descriptions, assign/unassign (`assignee`), and close/reopen (`status: Done|Open`).
 - When changing task status, include `topicId` in `zenzap_update_task`.
 
+**Polls — creating** — use `zenzap_create_poll` when someone asks to create a vote, survey, or poll:
+- `selectionType: 'single'` for "pick one", `'multiple'` for "pick all that apply"
+- Provide 2–10 non-empty option texts
+- `question`, `options`, and `selectionType` are required. Leave `subtitle`, `anonymous`, and `expiresAt` unset unless stated.
+- The response includes `options` as `[{id, text}, ...]` with the server-generated option IDs. Use these IDs directly with `zenzap_cast_poll_vote` — you do not need to wait for a message event to know the option IDs.
+
+**Polls — voting** — use `zenzap_cast_poll_vote` to vote on an existing poll on behalf of a user or yourself:
+- When a message contains a poll, a **Poll** block is appended to it:
+  ```
+  Poll: "Which day?" | attachmentId=<uuid> | options: [opt1] Monday / [opt2] Tuesday | type=single | status=open
+  ```
+  - `attachmentId` — pass this as `attachmentId` to `zenzap_cast_poll_vote`
+  - Options are shown as `[<optionId>] <text>` — pass the ID in brackets as `optionId`
+- Do not vote on polls where `status=closed` or the poll is expired
+- For `single` polls, vote at most once; for `multiple`, one vote per option is allowed
+- The response contains an `id` field — store it if you may need to retract the vote later
+
+**Polls — retracting a vote** — use `zenzap_delete_poll_vote` to remove the bot's own previously cast vote:
+- Requires the `attachmentId` of the poll and the `voteId` returned by `zenzap_cast_poll_vote` (the `id` field)
+- You can only retract votes cast by the bot itself; you cannot remove another user's vote
+- After retracting, a `poll_vote.deleted` event will arrive confirming the removal
+
+**Polls — vote events** — when someone votes or retracts a vote, you receive an event:
+- `poll_vote.created` arrives as:
+  ```
+  [poll_vote.created] voterId=<uuid> voted for optionId=opt1 on poll attachmentId=<uuid>
+  ```
+- `poll_vote.deleted` arrives as:
+  ```
+  [poll_vote.deleted] voterId=<uuid> removed vote for optionId=opt1 on poll attachmentId=<uuid>
+  ```
+- **Always resolve the option text**: when the poll was shown to you, its options were listed as `[<optionId>] <text>` (e.g. `[opt1] Monday`). Map the `optionId` from the event back to that text and refer to the option by name in your reply — say "voted for **Monday**", not "voted for opt1".
+- If you haven't seen the poll yet and don't know the option text, use `zenzap_get_messages` to fetch the message by `messageId` (included in the event metadata) and read the Poll block to get the option labels before responding.
+- For a **standalone unvote** (only a `poll_vote.deleted`, no following `poll_vote.created`): acknowledge briefly, e.g. "Leran removed their vote for **Option A**."
+- When a voter **changes their vote**, you receive both events in a single message delivery — a `poll_vote.deleted` immediately followed by a `poll_vote.created` on the same `attachmentId`. Treat this as a single vote change: "switched from optionId X to optionId Y". Always acknowledge it explicitly (e.g. "Leran switched their vote from **Option A** to **Option B**").
+
 **Topic management** — use `zenzap_add_members`, `zenzap_remove_members`, `zenzap_update_topic` when explicitly asked. Always confirm before removing members.
 
 **Member lookup** — use `zenzap_list_members` with `emails` (single email or list) to find someone by email. Member IDs starting with `b@` are bots, not humans.
@@ -78,3 +114,4 @@ When you need to ping someone in your reply, use their member ID in `zenzap_send
 - **Members** belong to an organization. The bot is also a member.
 - **Tasks** live inside topics and can have assignees and due dates.
 - You can only see and act within topics you are a member of.
+
