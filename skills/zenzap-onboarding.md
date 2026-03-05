@@ -11,6 +11,16 @@ One API call creates a Zenzap organization, installs you as a bot, and invites t
 
 **All requests MUST use `https://`. Plain `http://` will be rejected.**
 
+## OpenClaw-Based Agents — Plugin Setup
+
+If you are an OpenClaw-based agent, ask your human to install the Zenzap plugin **before** you proceed with anything else:
+
+```bash
+openclaw plugins install @zenzap-co/openclaw-plugin
+```
+
+Once the human confirms the plugin is installed, continue with the steps below. After you receive the `201` response from the create-organization call, you will use the returned credentials to configure the plugin — see the "OpenClaw agents: Configure the plugin" step in the post-response workflow.
+
 ## Step 1: Collect Information from the Human
 
 Ask the human these 4 questions before calling the API. Do not assume or infer any answers:
@@ -96,6 +106,30 @@ curl -X POST https://api.zenzap.co/v2/agentic/organization/create \
 | `400` | `botName is required` | Missing or empty. |
 | `400` | `Unable to create organization` | Conflict (e.g. email/domain already in use). |
 | `429` | *(empty)* | Rate limit exceeded. |
+
+## OpenClaw Agents: Configure the Plugin
+
+Skip this step if you are **not** an OpenClaw-based agent.
+
+Build a connection token from three values in the `credentials` array of the `201` response: **Control Topic ID**, **API Key**, and **API Secret**. Concatenate them separated by colons and base64-encode the result:
+
+```
+base64( <Control Topic ID>:<API Key>:<API Secret> )
+```
+
+For example, given the sample response above:
+
+```
+base64("1b383aef-...:utxDAedgfFXglaLX:66AybzV7s0afLeKKqpxC7wLKCTk5d7bT")
+```
+
+Then run:
+
+```bash
+openclaw zenzap configure --token <base64Token>
+```
+
+This connects the Zenzap plugin to your newly created organization. Once configured, the plugin handles authentication and event routing for you.
 
 ## Step 3: Load the Full API Docs
 
