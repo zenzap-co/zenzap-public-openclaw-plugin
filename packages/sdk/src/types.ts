@@ -10,7 +10,8 @@ export type ZenzapMessageType =
   | 'audio'
   | 'location'
   | 'task'
-  | 'contact';
+  | 'contact'
+  | 'poll';
 
 export interface ZenzapAttachmentTranscription {
   status?: 'Pending' | 'Started' | 'Done' | 'Failed';
@@ -100,9 +101,52 @@ export interface ZenzapMessage {
   location?: ZenzapLocation;
   task?: ZenzapTaskSnapshot;
   contact?: ZenzapContact;
+  poll?: ZenzapPollSnapshot;
   truncated?: boolean;
   createdAt?: number;
   updatedAt?: number;
+}
+
+export interface ZenzapPollOption {
+  id: string;
+  text: string;
+}
+
+export interface ZenzapPoll {
+  id: string;
+  topicId: string;
+  question: string;
+  options: ZenzapPollOption[];
+  selectionType: string;
+  status: string;
+  anonymous?: boolean;
+  expiresAt?: number;
+  createdAt: number;
+}
+
+/** Poll data embedded in a message event (from the poll attachment). */
+export interface ZenzapPollOptionSnapshot {
+  id: string;
+  text: string;
+}
+
+export interface ZenzapPollSnapshot {
+  /** Attachment ID — required as `attachmentId` when calling castPollVote. */
+  id: string;
+  title?: string;
+  subtitle?: string;
+  options?: ZenzapPollOptionSnapshot[];
+  selectionType?: string;
+  anonymous?: boolean;
+  status?: string;
+  expiresAt?: number;
+}
+
+export interface ZenzapPollVoteCreateResponse {
+  id: string;
+  attachmentId: string;
+  optionId: string;
+  createdAt: number;
 }
 
 export interface ZenzapTask {
@@ -138,6 +182,7 @@ export interface ZenzapTopicMessage {
   location?: ZenzapLocation;
   task?: ZenzapTaskSnapshot;
   contact?: ZenzapContact;
+  poll?: ZenzapPollSnapshot;
 }
 
 export interface ZenzapTopicMessagesResponse {
@@ -173,7 +218,19 @@ export type ZenzapEventType =
   | 'member.added'
   | 'member.removed'
   | 'topic.updated'
-  | 'webhook.test';
+  | 'webhook.test'
+  | 'poll_vote.created'
+  | 'poll_vote.deleted';
+
+export interface ZenzapPollVoteEventData {
+  pollVoteId: string;
+  attachmentId: string;
+  messageId: string;
+  topicId: string;
+  optionId: string;
+  voterId: string;
+  createdAt: number;
+}
 
 export interface ZenzapMemberEventData {
   topicId: string;
@@ -217,6 +274,11 @@ export interface ZenzapUpdateEvent {
     description?: string;
     changes?: { name?: string; description?: string };
     truncated?: boolean;
+    // poll_vote.created / poll_vote.deleted
+    pollVoteId?: string;
+    attachmentId?: string;
+    optionId?: string;
+    voterId?: string;
   };
 }
 

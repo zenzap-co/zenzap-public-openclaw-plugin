@@ -1,5 +1,10 @@
 export { ZenzapClient, initializeClient, getClient } from './client.js';
 export type {
+  ZenzapPollOption,
+  ZenzapPoll,
+  ZenzapPollOptionSnapshot,
+  ZenzapPollSnapshot,
+  ZenzapPollVoteCreateResponse,
   ZenzapMessageType,
   ZenzapAttachmentTranscription,
   ZenzapAttachment,
@@ -22,4 +27,5 @@ export type {
   ZenzapEventType,
   ZenzapMemberEventData,
   ZenzapTopicUpdatedEventData,
+  ZenzapPollVoteEventData,
 } from './types';

@@ -610,7 +610,15 @@ const plugin = {
 
         const debouncer = core.channel.debounce.createInboundDebouncer({
           debounceMs: 1500,
-          buildKey: (msg: any) => msg.metadata?.topicId ?? null,
+          buildKey: (msg: any) => {
+            const eventType = msg.metadata?.eventType;
+            if (typeof eventType === 'string' && eventType.startsWith('poll_vote.')) {
+              // Keep poll vote events in their own debounce bucket (per poll),
+              // so they are never merged with regular chat messages.
+              return `__poll_vote__:${msg.metadata?.attachmentId ?? msg.metadata?.pollVoteId ?? Date.now()}`;
+            }
+            return msg.metadata?.topicId ?? null;
+          },
           onFlush: async (msgs: any[]) => {
             const combined =
               msgs.length === 1
@@ -631,7 +639,7 @@ const plugin = {
 
         const sendMessage = async (msg: any) => {
           const rawText = msg.text?.trim();
-          if (!rawText) return;
+          if (!rawText) { console.log('[Zenzap] Skipping message with empty text', msg.metadata); return; }
 
           const topicId = msg.metadata?.topicId ?? msg.conversation?.replace(`${CHANNEL_ID}:`, '');
           if (!topicId) {
@@ -762,7 +770,9 @@ const plugin = {
               OriginatingChannel: CHANNEL_ID,
               OriginatingTo: `${CHANNEL_ID}:${topicId}`,
               CommandAuthorized: true,
-              MessageSid: msg.metadata?.messageId,
+              MessageSid: msg.metadata?.eventType?.startsWith('poll_vote.')
+                ? `${msg.metadata.eventType}:${msg.metadata?.pollVoteId ?? msg.metadata?.messageId}`
+                : msg.metadata?.messageId,
             });
 
             await core.channel.session.recordInboundSession({
@@ -829,6 +839,7 @@ const plugin = {
               }
             };
 
+            console.log('[Zenzap] Dispatching to LLM', { topicId, eventType: msg.metadata?.eventType ?? 'message' });
             await tryDispatch();
           } catch (err: any) {
             console.error('[Zenzap] Error dispatching message to agent:', err?.stack ?? err);
