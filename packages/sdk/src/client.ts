@@ -285,11 +285,6 @@ export class ZenzapClient {
     return this.request('POST', `/v2/polls/${attachmentId}/votes`, { optionId });
   }
 
-  /** DELETE /v2/polls/:attachmentId/votes/:voteId */
-  async deletePollVote(attachmentId: string, voteId: string): Promise<void> {
-    return this.request('DELETE', `/v2/polls/${attachmentId}/votes/${voteId}`);
-  }
-
   /** PATCH /v2/tasks/:taskId */
   async updateTask(taskId: string, options: {
     topicId?: string;
