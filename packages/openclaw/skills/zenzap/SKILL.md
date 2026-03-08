@@ -46,6 +46,12 @@ You may also add a reaction (✅, 👍, ❤️) in addition to your reply, but n
   - Options are shown as `[<optionId>] <text>` — pass the ID in brackets as `optionId`
 - Do not vote on polls where `status=closed` or the poll is expired
 - For `single` polls, vote at most once; for `multiple`, one vote per option is allowed
+- The response contains an `id` field — store it if you may need to retract the vote later
+
+**Polls — retracting a vote** — use `zenzap_delete_poll_vote` to remove the bot's own previously cast vote:
+- Requires the `attachmentId` of the poll and the `voteId` returned by `zenzap_cast_poll_vote` (the `id` field)
+- You can only retract votes cast by the bot itself; you cannot remove another user's vote
+- After retracting, a `poll_vote.deleted` event will arrive confirming the removal
 
 **Polls — vote events** — when someone votes or retracts a vote, you receive an event:
 - `poll_vote.created` arrives as:

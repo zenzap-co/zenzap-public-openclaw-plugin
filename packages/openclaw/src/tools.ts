@@ -312,6 +312,26 @@ export const tools = [
     },
   },
   {
+    id: 'zenzap_delete_poll_vote',
+    name: 'Delete Zenzap Poll Vote',
+    description:
+      "Retract the bot's vote on a poll. Provide the poll attachment ID and the vote ID returned when the vote was cast (the id field from the castPollVote response).",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        attachmentId: {
+          type: 'string',
+          description: 'UUID of the poll attachment',
+        },
+        voteId: {
+          type: 'string',
+          description: 'ID of the vote to delete (the id field returned by zenzap_cast_poll_vote)',
+        },
+      },
+      required: ['attachmentId', 'voteId'],
+    },
+  },
+  {
     id: 'zenzap_update_task',
     name: 'Update Zenzap Task',
     description: 'Update task fields: rename, description, assignee/unassign, or status (Done/Open)',
@@ -504,6 +524,9 @@ export async function executeTool(toolId: string, input: any): Promise<any> {
 
     case 'zenzap_cast_poll_vote':
       return client.castPollVote(input.attachmentId, input.optionId);
+
+    case 'zenzap_delete_poll_vote':
+      return client.deletePollVote(input.attachmentId, input.voteId);
 
     case 'zenzap_update_task': {
       if (input.name !== undefined && input.title !== undefined) {
