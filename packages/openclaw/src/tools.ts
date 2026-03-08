@@ -405,11 +405,30 @@ export const tools = [
   },
 ];
 
-type ClientGetter = () => ZenzapClient;
+const ACCOUNT_ID_SCHEMA = {
+  type: 'string',
+  description:
+    'Optional Zenzap account ID to use in multi-account setups. Usually omitted for single-account setups.',
+};
 
-export function createToolExecutor(getClientForExecution: ClientGetter) {
-  return async function executeTool(toolId: string, input: any): Promise<any> {
-    const client = getClientForExecution();
+for (const tool of tools) {
+  const properties = ((tool.inputSchema as any).properties ??= {});
+  if (!properties.accountId) {
+    properties.accountId = ACCOUNT_ID_SCHEMA;
+  }
+}
+
+type ClientResolverContext = {
+  toolId: string;
+  input: any;
+  toolCallId?: string;
+};
+
+type ClientResolver = (context: ClientResolverContext) => ZenzapClient;
+
+export function createToolExecutor(resolveClient: ClientResolver) {
+  return async function executeTool(toolId: string, input: any, toolCallId?: string): Promise<any> {
+    const client = resolveClient({ toolId, input, toolCallId });
 
     switch (toolId) {
       case 'zenzap_get_me':

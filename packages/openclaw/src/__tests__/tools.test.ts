@@ -17,7 +17,7 @@ vi.mock('@zenzap-co/sdk', () => ({
   getClient: () => mockClient,
 }));
 
-import { executeTool } from '../tools.js';
+import { createToolExecutor, executeTool } from '../tools.js';
 
 describe('executeTool task operations', () => {
   beforeEach(() => {
@@ -277,5 +277,18 @@ describe('executeTool task operations', () => {
   it('gets task details by taskId', async () => {
     await executeTool('zenzap_get_task', { taskId: 'task-1' });
     expect(mockClient.getTask).toHaveBeenCalledWith('task-1');
+  });
+
+  it('routes tool execution through the requested accountId', async () => {
+    const clientA = { getCurrentMember: vi.fn().mockResolvedValue({ id: 'a' }) };
+    const clientB = { getCurrentMember: vi.fn().mockResolvedValue({ id: 'b' }) };
+    const executeWithAccounts = createToolExecutor(({ input }) =>
+      input?.accountId === 'agent-b' ? (clientB as any) : (clientA as any),
+    );
+
+    await executeWithAccounts('zenzap_get_me', { accountId: 'agent-b' });
+
+    expect(clientB.getCurrentMember).toHaveBeenCalledOnce();
+    expect(clientA.getCurrentMember).not.toHaveBeenCalled();
   });
 });
