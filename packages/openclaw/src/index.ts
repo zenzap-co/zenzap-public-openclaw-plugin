@@ -2,13 +2,14 @@
  * Zenzap Plugin - OpenClaw Channel Plugin
  */
 
+import { createHash } from 'crypto';
 import { join } from 'path';
 import { createRequire } from 'module';
 import { promises as fsPromises } from 'fs';
 import { ZenzapListener } from './listener.js';
-import { ZenzapClient, initializeClient, getClient } from '@zenzap-co/sdk';
+import { ZenzapClient } from '@zenzap-co/sdk';
 import { createWhisperAudioTranscriber } from './transcription.js';
-import { tools, executeTool } from './tools.js';
+import { tools, createToolExecutor } from './tools.js';
 
 const CHANNEL_ID = 'zenzap';
 const DEFAULT_API_URL = 'https://api.zenzap.co';
@@ -24,6 +25,8 @@ const DEFAULT_POLL_TIMEOUT = 20;
 // UUID v4 pattern for validation
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PROCESS_GUARD_KEY = '__zenzapOpenclawProcessGuardsInstalled';
+const PROCESS_GUARD_REGISTRY_KEY = '__zenzapOpenclawProcessGuardRegistry';
+const ACTIVE_BOT_REGISTRY_KEY = '__zenzapOpenclawActiveBotRegistry';
 
 function isValidUuid(v: string): boolean {
   return UUID_RE.test(v);
@@ -69,23 +72,68 @@ function makeTextToolResult(text: string): { content: Array<{ type: 'text'; text
   };
 }
 
-function installProcessGuards(getNotifyControl: () => ((text: string) => Promise<void>) | null): void {
+type NotifyControl = ((text: string) => Promise<void>) | null;
+
+function createScopeId(parts: Array<string | undefined>): string {
+  const hash = createHash('sha256');
+  for (const part of parts) {
+    hash.update(part ?? '');
+    hash.update('\0');
+  }
+  return hash.digest('hex').slice(0, 16);
+}
+
+function buildOffsetFilePath(stateDir: string, scopeId: string): string {
+  return join(stateDir, 'zenzap', scopeId, 'update-offset.json');
+}
+
+function registerActiveBotScope(botFingerprint: string, scopeId: string): string[] {
   const g = globalThis as any;
+  const registry: Map<string, Set<string>> =
+    g[ACTIVE_BOT_REGISTRY_KEY] ?? (g[ACTIVE_BOT_REGISTRY_KEY] = new Map());
+  const scopes = registry.get(botFingerprint) ?? new Set<string>();
+  scopes.add(scopeId);
+  registry.set(botFingerprint, scopes);
+  return Array.from(scopes);
+}
+
+function unregisterActiveBotScope(botFingerprint: string, scopeId: string): void {
+  const g = globalThis as any;
+  const registry: Map<string, Set<string>> | undefined = g[ACTIVE_BOT_REGISTRY_KEY];
+  const scopes = registry?.get(botFingerprint);
+  if (!scopes) return;
+  scopes.delete(scopeId);
+  if (scopes.size === 0) {
+    registry?.delete(botFingerprint);
+  }
+}
+
+function installProcessGuards(
+  scopeId: string,
+  getNotifyControl: () => NotifyControl,
+): void {
+  const g = globalThis as any;
+  const registry: Map<string, () => NotifyControl> =
+    g[PROCESS_GUARD_REGISTRY_KEY] ?? (g[PROCESS_GUARD_REGISTRY_KEY] = new Map());
+  registry.set(scopeId, getNotifyControl);
+
   if (g[PROCESS_GUARD_KEY]) return;
   g[PROCESS_GUARD_KEY] = true;
 
-  let lastNotifyTs = 0;
-  const notifyControl = async (text: string): Promise<void> => {
+  const lastNotifyByScope = new Map<string, number>();
+  const notifyControls = async (text: string): Promise<void> => {
     const now = Date.now();
-    if (now - lastNotifyTs < 30_000) return;
-    lastNotifyTs = now;
-    const notify = getNotifyControl();
-    if (!notify) return;
-    try {
-      await notify(text);
-    } catch {
-      // best effort
-    }
+    const activeRegistry = (g[PROCESS_GUARD_REGISTRY_KEY] as Map<string, () => NotifyControl>) ?? registry;
+    await Promise.allSettled(
+      Array.from(activeRegistry.entries()).map(async ([registeredScopeId, getNotify]) => {
+        const lastNotifyTs = lastNotifyByScope.get(registeredScopeId) ?? 0;
+        if (now - lastNotifyTs < 30_000) return;
+        const notify = getNotify();
+        if (!notify) return;
+        lastNotifyByScope.set(registeredScopeId, now);
+        await notify(text);
+      }),
+    );
   };
 
   process.on('unhandledRejection', (reason: any) => {
@@ -98,12 +146,160 @@ function installProcessGuards(getNotifyControl: () => ((text: string) => Promise
 
     if (isKnownContextBudgetBug) {
       console.error('[Zenzap] Recovered from OpenClaw context-budget unhandled rejection:', msg);
-      void notifyControl('⚠️ Recovered from an internal context error while handling a reply. Please retry the request.');
+      void notifyControls('⚠️ Recovered from an internal context error while handling a reply. Please retry the request.');
       return;
     }
 
     console.error('[Zenzap] Unhandled promise rejection:', msg);
   });
+}
+
+function createChannelPlugin(getScopedClient: () => ZenzapClient) {
+  return {
+    id: CHANNEL_ID,
+
+    meta: {
+      id: CHANNEL_ID,
+      label: 'Zenzap',
+      selectionLabel: 'Zenzap (Polling)',
+      docsPath: '/channels/zenzap',
+      docsLabel: 'zenzap',
+      blurb: 'Team messaging via Zenzap with long-polling support.',
+      order: 90,
+    },
+
+    capabilities: {
+      chatTypes: ['group'],
+      reactions: false,
+      threads: false,
+      media: true,
+      nativeCommands: false,
+    },
+
+    configSchema: {
+      safeParse: (v: any) => {
+        const errors: string[] = [];
+        if (!v?.apiKey) errors.push('apiKey is required');
+        if (!v?.apiSecret) errors.push('apiSecret is required');
+        if (v?.controlTopicId && !isValidUuid(v.controlTopicId))
+          errors.push('controlTopicId must be a valid UUID');
+        if (errors.length) return { success: false, error: errors.join('; ') };
+        return { success: true, data: v };
+      },
+      parse: (v: any) => v,
+      validate: (v: any) => {
+        const errors: string[] = [];
+        if (!v?.apiKey) errors.push('apiKey is required');
+        if (!v?.apiSecret) errors.push('apiSecret is required');
+        if (v?.controlTopicId && !isValidUuid(v.controlTopicId))
+          errors.push('controlTopicId must be a valid UUID');
+        if (errors.length) return { ok: false, error: errors.join('; ') };
+        return { ok: true, value: v };
+      },
+      jsonSchema: {
+        type: 'object',
+        additionalProperties: true,
+        properties: {
+          enabled: { type: 'boolean' },
+          apiKey: { type: 'string' },
+          apiSecret: { type: 'string' },
+          dmPolicy: { type: 'string' },
+          pollTimeout: { type: 'number' },
+          controlTopicId: { type: 'string' },
+          botName: { type: 'string' },
+          requireMention: { type: 'boolean' },
+        },
+      },
+    },
+
+    config: {
+      listAccountIds: (cfg: any): string[] => {
+        if (cfg.channels?.[CHANNEL_ID]?.apiKey) return ['default'];
+        return [];
+      },
+      resolveAccount: (cfg: any, accountId?: string): any => {
+        const channelCfg = cfg.channels?.[CHANNEL_ID] ?? {};
+        return {
+          accountId: accountId ?? 'default',
+          enabled: channelCfg.enabled ?? true,
+          name: accountId ?? 'default',
+          config: channelCfg,
+        };
+      },
+      isConfigured: (account: any): boolean =>
+        Boolean(account?.config?.apiKey && account?.config?.apiSecret),
+      describeAccount: (account: any): any => ({
+        accountId: account.accountId ?? 'default',
+        enabled: account.enabled ?? true,
+        configured: Boolean(account?.config?.apiKey && account?.config?.apiSecret),
+      }),
+    },
+
+    outbound: {
+      deliveryMode: 'direct',
+      sendText: async ({ to, text }: any): Promise<any> => {
+        const topicId = to?.startsWith(`${CHANNEL_ID}:`) ? to.slice(CHANNEL_ID.length + 1) : to;
+        const client = getScopedClient();
+        await client.sendMessage({ topicId, text });
+        return { ok: true };
+      },
+    },
+
+    status: {
+      probe: async (cfg: any) => {
+        try {
+          const channelCfg = cfg.channels?.[CHANNEL_ID] ?? cfg;
+          const pluginCfg = cfg.plugins?.entries?.[CHANNEL_ID]?.config ?? {};
+          const client = new ZenzapClient({
+            apiKey: channelCfg.apiKey,
+            apiSecret: channelCfg.apiSecret,
+            apiUrl: pluginCfg.apiUrl ?? DEFAULT_API_URL,
+          });
+          await client.getCurrentMember();
+          return { ok: true };
+        } catch (err: any) {
+          return { ok: false, issue: err.message };
+        }
+      },
+    },
+
+    // Wizard integration — called by `openclaw onboard` / `openclaw configure`
+    setup: {
+      wizard: async (ctx: any) => {
+        const { prompter, config, writeConfig } = ctx;
+        const existingCfg = config?.channels?.[CHANNEL_ID] ?? {};
+        const pluginCfg = config?.plugins?.entries?.[CHANNEL_ID]?.config ?? {};
+        const result = await runSetupFlow(
+          prompter,
+          async (patch: any, pluginPatch?: any) => {
+            const updated = {
+              ...config,
+              channels: {
+                ...config?.channels,
+                [CHANNEL_ID]: { ...existingCfg, ...patch, enabled: true },
+              },
+              ...(pluginPatch && {
+                plugins: {
+                  ...config?.plugins,
+                  entries: {
+                    ...config?.plugins?.entries,
+                    [CHANNEL_ID]: {
+                      ...config?.plugins?.entries?.[CHANNEL_ID],
+                      config: { ...pluginCfg, ...pluginPatch },
+                    },
+                  },
+                },
+              }),
+            };
+            await writeConfig(updated);
+          },
+          existingCfg,
+          pluginCfg,
+        );
+        return result;
+      },
+    },
+  };
 }
 
 // ─── Setup flow (shared between CLI command and wizard adapter) ─────────────── (shared between CLI command and wizard adapter) ───────────────
@@ -309,154 +505,6 @@ async function runTokenSetup(
   return { botName, controlTopicId };
 }
 
-// ─── Channel plugin ───────────────────────────────────────────────────────────
-
-const channelPlugin = {
-  id: CHANNEL_ID,
-
-  meta: {
-    id: CHANNEL_ID,
-    label: 'Zenzap',
-    selectionLabel: 'Zenzap (Polling)',
-    docsPath: '/channels/zenzap',
-    docsLabel: 'zenzap',
-    blurb: 'Team messaging via Zenzap with long-polling support.',
-    order: 90,
-  },
-
-  capabilities: {
-    chatTypes: ['group'],
-    reactions: false,
-    threads: false,
-    media: true,
-    nativeCommands: false,
-  },
-
-  configSchema: {
-    safeParse: (v: any) => {
-      const errors: string[] = [];
-      if (!v?.apiKey) errors.push('apiKey is required');
-      if (!v?.apiSecret) errors.push('apiSecret is required');
-      if (v?.controlTopicId && !isValidUuid(v.controlTopicId))
-        errors.push('controlTopicId must be a valid UUID');
-      if (errors.length) return { success: false, error: errors.join('; ') };
-      return { success: true, data: v };
-    },
-    parse: (v: any) => v,
-    validate: (v: any) => {
-      const errors: string[] = [];
-      if (!v?.apiKey) errors.push('apiKey is required');
-      if (!v?.apiSecret) errors.push('apiSecret is required');
-      if (v?.controlTopicId && !isValidUuid(v.controlTopicId))
-        errors.push('controlTopicId must be a valid UUID');
-      if (errors.length) return { ok: false, error: errors.join('; ') };
-      return { ok: true, value: v };
-    },
-    jsonSchema: {
-      type: 'object',
-      additionalProperties: true,
-      properties: {
-        enabled: { type: 'boolean' },
-        apiKey: { type: 'string' },
-        apiSecret: { type: 'string' },
-        dmPolicy: { type: 'string' },
-        pollTimeout: { type: 'number' },
-        controlTopicId: { type: 'string' },
-        botName: { type: 'string' },
-        requireMention: { type: 'boolean' },
-      },
-    },
-  },
-
-  config: {
-    listAccountIds: (cfg: any): string[] => {
-      if (cfg.channels?.[CHANNEL_ID]?.apiKey) return ['default'];
-      return [];
-    },
-    resolveAccount: (cfg: any, accountId?: string): any => {
-      const channelCfg = cfg.channels?.[CHANNEL_ID] ?? {};
-      return {
-        accountId: accountId ?? 'default',
-        enabled: channelCfg.enabled ?? true,
-        name: accountId ?? 'default',
-        config: channelCfg,
-      };
-    },
-    isConfigured: (account: any): boolean =>
-      Boolean(account?.config?.apiKey && account?.config?.apiSecret),
-    describeAccount: (account: any): any => ({
-      accountId: account.accountId ?? 'default',
-      enabled: account.enabled ?? true,
-      configured: Boolean(account?.config?.apiKey && account?.config?.apiSecret),
-    }),
-  },
-
-  outbound: {
-    deliveryMode: 'direct',
-    sendText: async ({ to, text }: any): Promise<any> => {
-      const topicId = to?.startsWith(`${CHANNEL_ID}:`) ? to.slice(CHANNEL_ID.length + 1) : to;
-      const client = getClient();
-      await client.sendMessage({ topicId, text });
-      return { ok: true };
-    },
-  },
-
-  status: {
-    probe: async (cfg: any) => {
-      try {
-        const channelCfg = cfg.channels?.[CHANNEL_ID] ?? cfg;
-        const pluginCfg = cfg.plugins?.entries?.[CHANNEL_ID]?.config ?? {};
-        const client = new ZenzapClient({
-          apiKey: channelCfg.apiKey,
-          apiSecret: channelCfg.apiSecret,
-          apiUrl: pluginCfg.apiUrl ?? DEFAULT_API_URL,
-        });
-        await client.getCurrentMember();
-        return { ok: true };
-      } catch (err: any) {
-        return { ok: false, issue: err.message };
-      }
-    },
-  },
-
-  // Wizard integration — called by `openclaw onboard` / `openclaw configure`
-  setup: {
-    wizard: async (ctx: any) => {
-      const { prompter, config, writeConfig } = ctx;
-      const existingCfg = config?.channels?.[CHANNEL_ID] ?? {};
-      const pluginCfg = config?.plugins?.entries?.[CHANNEL_ID]?.config ?? {};
-      const result = await runSetupFlow(
-        prompter,
-        async (patch: any, pluginPatch?: any) => {
-          const updated = {
-            ...config,
-            channels: {
-              ...config?.channels,
-              [CHANNEL_ID]: { ...existingCfg, ...patch, enabled: true },
-            },
-            ...(pluginPatch && {
-              plugins: {
-                ...config?.plugins,
-                entries: {
-                  ...config?.plugins?.entries,
-                  [CHANNEL_ID]: {
-                    ...config?.plugins?.entries?.[CHANNEL_ID],
-                    config: { ...pluginCfg, ...pluginPatch },
-                  },
-                },
-              },
-            }),
-          };
-          await writeConfig(updated);
-        },
-        existingCfg,
-        pluginCfg,
-      );
-      return result;
-    },
-  },
-};
-
 // ─── Plugin ───────────────────────────────────────────────────────────────────
 
 const plugin = {
@@ -472,7 +520,30 @@ const plugin = {
   register(api: any) {
     console.log('[Zenzap] Registering plugin...');
 
-    api.registerChannel({ plugin: channelPlugin });
+    let clientState:
+      | {
+          fingerprint: string;
+          client: ZenzapClient;
+        }
+      | null = null;
+
+    const getScopedClient = (): ZenzapClient => {
+      const cfg = api.config?.channels?.[CHANNEL_ID];
+      if (!cfg?.apiKey || !cfg?.apiSecret) {
+        throw new Error('Zenzap channel is not configured. Run setup first.');
+      }
+      const pluginCfg = api.config?.plugins?.entries?.[CHANNEL_ID]?.config ?? {};
+      const apiUrl = pluginCfg.apiUrl || DEFAULT_API_URL;
+      const fingerprint = createScopeId([apiUrl, cfg.apiKey, cfg.apiSecret]);
+      if (clientState?.fingerprint === fingerprint) return clientState.client;
+      const client = new ZenzapClient({ apiKey: cfg.apiKey, apiSecret: cfg.apiSecret, apiUrl });
+      clientState = { fingerprint, client };
+      return client;
+    };
+
+    const executeTool = createToolExecutor(getScopedClient);
+
+    api.registerChannel({ plugin: createChannelPlugin(getScopedClient) });
 
     for (const tool of tools) {
       api.registerTool({
@@ -567,9 +638,10 @@ const plugin = {
     );
 
     let listener: ZenzapListener | null = null;
-    let notifyControl: (text: string) => Promise<void> = async () => {};
+    let notifyControl: NotifyControl = null;
     let botDisplayName = 'Zenzap Bot';
-    installProcessGuards(() => notifyControl);
+    let activeRuntimeScopeId: string | null = null;
+    let activeBotFingerprint: string | null = null;
 
     api.registerService({
       id: 'zenzap-poller',
@@ -592,14 +664,13 @@ const plugin = {
         });
         const controlTopicId: string | undefined = cfg.controlTopicId;
         botDisplayName = cfg.botName || 'Zenzap Bot';
-
-        initializeClient({ apiKey: cfg.apiKey, apiSecret: cfg.apiSecret, apiUrl });
+        const client = getScopedClient();
         console.log('[Zenzap] ✓ API client initialized');
 
         // Fetch bot's own member ID for mention detection
         let botMemberId: string | undefined;
         try {
-          const me = await getClient().getCurrentMember();
+          const me = await client.getCurrentMember();
           botMemberId = me?.id;
           if (botMemberId) console.log('[Zenzap] ✓ Bot member ID:', botMemberId);
         } catch {
@@ -607,6 +678,32 @@ const plugin = {
         }
 
         const core = api.runtime;
+        const stateDir = core.state.resolveStateDir(api.config);
+        const botFingerprint = createScopeId([apiUrl, cfg.apiKey, cfg.apiSecret]);
+        const runtimeScopeId = createScopeId([stateDir, apiUrl, cfg.apiKey, controlTopicId]);
+        installProcessGuards(runtimeScopeId, () => notifyControl);
+        activeRuntimeScopeId = runtimeScopeId;
+        activeBotFingerprint = botFingerprint;
+
+        const activeScopes = registerActiveBotScope(botFingerprint, runtimeScopeId);
+        if (activeScopes.length > 1) {
+          const warning =
+            'Warning: this Zenzap bot is also active in another OpenClaw workspace in the same process. State is isolated, but the pollers may compete for the same upstream updates.';
+          console.warn('[Zenzap] ' + warning, {
+            scopeId: runtimeScopeId,
+            activeScopeCount: activeScopes.length,
+          });
+          if (controlTopicId) {
+            notifyControl = async (text: string) => {
+              try {
+                await getScopedClient().sendMessage({ topicId: controlTopicId, text });
+              } catch {
+                /* best-effort */
+              }
+            };
+            await notifyControl(`⚠️ ${warning}`);
+          }
+        }
 
         const debouncer = core.channel.debounce.createInboundDebouncer({
           debounceMs: 1500,
@@ -791,8 +888,7 @@ const plugin = {
                 deliver: async (payload: any) => {
                   if (payload.text) {
                     try {
-                      const client = getClient();
-                      await client.sendMessage({ topicId, text: payload.text });
+                      await getScopedClient().sendMessage({ topicId, text: payload.text });
                     } catch (err) {
                       console.error('[Zenzap] Failed to deliver reply:', err);
                     }
@@ -800,7 +896,7 @@ const plugin = {
                 },
                 onError: (err: any, info: any) => {
                   console.error(`[Zenzap] Reply dispatch error (${info?.kind}):`, err);
-                  if (controlTopicId) {
+                  if (controlTopicId && notifyControl) {
                     const label = info?.kind ? ` (${info.kind})` : '';
                     const errMsg = err?.message ?? String(err);
                     notifyControl(`⚠️ Agent error${label}: ${errMsg}`).catch(() => {});
@@ -826,9 +922,11 @@ const plugin = {
                       `[Zenzap] Corrupted session detected for ${topicId}, clearing and retrying...`,
                     );
                     await fsPromises.unlink(sessionFile);
-                    notifyControl(
-                      `⚠️ Cleared corrupted session for topic ${topicId}, retrying...`,
-                    ).catch(() => {});
+                    if (notifyControl) {
+                      notifyControl(
+                        `⚠️ Cleared corrupted session for topic ${topicId}, retrying...`,
+                      ).catch(() => {});
+                    }
                     await tryDispatch(true);
                     return;
                   } catch {
@@ -844,12 +942,14 @@ const plugin = {
           } catch (err: any) {
             console.error('[Zenzap] Error dispatching message to agent:', err?.stack ?? err);
             const errMsg = err?.message ?? String(err);
-            notifyControl(`⚠️ Dispatch error in topic ${topicId}: ${errMsg}`).catch(() => {});
+            if (notifyControl) {
+              notifyControl(`⚠️ Dispatch error in topic ${topicId}: ${errMsg}`).catch(() => {});
+            }
             try {
               const topicIdForErr =
                 msg.metadata?.topicId ?? msg.conversation?.replace(`${CHANNEL_ID}:`, '');
               if (topicIdForErr && topicIdForErr !== controlTopicId) {
-                await getClient().sendMessage({
+                await getScopedClient().sendMessage({
                   topicId: topicIdForErr,
                   text: `Sorry, I ran into an error processing your message. Please try again.`,
                 });
@@ -864,14 +964,13 @@ const plugin = {
         notifyControl = async (text: string) => {
           if (!controlTopicId) return;
           try {
-            await getClient().sendMessage({ topicId: controlTopicId, text });
+            await getScopedClient().sendMessage({ topicId: controlTopicId, text });
           } catch {
             /* best-effort */
           }
         };
 
-        const stateDir = core.state.resolveStateDir(api.config);
-        const offsetFile = join(stateDir, 'zenzap', 'update-offset.json');
+        const offsetFile = buildOffsetFilePath(stateDir, runtimeScopeId);
 
         listener = new ZenzapListener({
           config: {
@@ -883,7 +982,7 @@ const plugin = {
           },
           botMemberId,
           controlTopicId,
-          client: getClient(),
+          client,
           sendMessage: async (msg: any) => {
             await debouncer.enqueue(msg);
           },
@@ -893,8 +992,6 @@ const plugin = {
             topicName: string,
             cachedMemberCount: number,
           ) => {
-            const client = getClient();
-
             const [details, history] = await Promise.allSettled([
               client.getTopicDetails(topicId),
               client.getTopicMessages(topicId, { limit: 30, order: 'asc', includeSystem: false }),
@@ -945,14 +1042,14 @@ const plugin = {
             void client.getTopicDetails(topicId).then(async (fresh) => {
               const freshCount = (fresh as any)?.memberCount ?? fresh?.members?.length;
               const label = freshCount != null ? ` (${freshCount} members)` : '';
-              await notifyControl(`Joined topic: "${resolvedTopicName}"${label}`);
+              if (notifyControl) await notifyControl(`Joined topic: "${resolvedTopicName}"${label}`);
             }).catch(() => {
-              void notifyControl(`Joined topic: "${resolvedTopicName}"`);
+              if (notifyControl) void notifyControl(`Joined topic: "${resolvedTopicName}"`);
             });
           },
           onPollerError: async (err: Error) => {
             console.error('[Zenzap] Poller error:', err);
-            await notifyControl(`Poller error: ${err.message}`);
+            if (notifyControl) await notifyControl(`Poller error: ${err.message}`);
           },
           requireMention: (topicId: string, _memberCount: number) => {
             if (controlTopicId && topicId === controlTopicId) return false;
@@ -969,21 +1066,32 @@ const plugin = {
 
         // Notify control topic that bot is online
         try {
-          const { topics } = await getClient().listTopics({ limit: 100 });
+          const { topics } = await client.listTopics({ limit: 100 });
           const topicCount = topics?.length ?? 0;
-          await notifyControl(
-            `🟢 ${botDisplayName} is online. Monitoring ${topicCount} topic${topicCount !== 1 ? 's' : ''}.`,
-          );
+          if (notifyControl) {
+            await notifyControl(
+              `🟢 ${botDisplayName} is online. Monitoring ${topicCount} topic${topicCount !== 1 ? 's' : ''}.`,
+            );
+          }
         } catch {
-          await notifyControl(`🟢 ${botDisplayName} is online.`);
+          if (notifyControl) await notifyControl(`🟢 ${botDisplayName} is online.`);
         }
       },
       stop: async () => {
-        await notifyControl(`🔴 ${botDisplayName} is going offline.`).catch(() => {});
+        if (notifyControl) {
+          await notifyControl(`🔴 ${botDisplayName} is going offline.`).catch(() => {});
+        }
         if (listener) {
           await listener.stop();
           console.log('[Zenzap] ✓ Poller service stopped');
         }
+        if (activeBotFingerprint && activeRuntimeScopeId) {
+          unregisterActiveBotScope(activeBotFingerprint, activeRuntimeScopeId);
+        }
+        activeBotFingerprint = null;
+        activeRuntimeScopeId = null;
+        listener = null;
+        notifyControl = null;
       },
     });
 
