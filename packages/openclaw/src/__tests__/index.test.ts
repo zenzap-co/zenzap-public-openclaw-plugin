@@ -2,6 +2,49 @@ import { describe, expect, it, vi } from 'vitest';
 import plugin from '../index.js';
 
 describe('Zenzap channel multi-account config', () => {
+  it('advertises topic-bound ACP bindings via thread capabilities and config', () => {
+    const registerChannel = vi.fn();
+    plugin.register({
+      config: {},
+      registerChannel,
+      registerTool: vi.fn(),
+      registerService: vi.fn(),
+      registerCommand: vi.fn(),
+      registerCli: vi.fn(),
+      runtime: {},
+    });
+
+    const channelPlugin = registerChannel.mock.calls[0][0].plugin;
+    const cfg = {
+      channels: {
+        zenzap: {
+          enabled: true,
+          accounts: {
+            'agent-a': {
+              apiKey: 'key-a',
+              apiSecret: 'secret-a',
+              threadBindings: { enabled: true, spawnAcpSessions: true },
+            },
+          },
+        },
+      },
+    };
+
+    expect(channelPlugin.capabilities.threads).toBe(true);
+    expect(
+      channelPlugin.configSchema.jsonSchema.properties.threadBindings.properties.spawnAcpSessions.type,
+    ).toBe('boolean');
+    expect(channelPlugin.config.resolveAccount(cfg, 'agent-a')).toMatchObject({
+      accountId: 'agent-a',
+      config: {
+        threadBindings: {
+          enabled: true,
+          spawnAcpSessions: true,
+        },
+      },
+    });
+  });
+
   it('lists named accounts and resolves their configs', () => {
     const registerChannel = vi.fn();
     plugin.register({

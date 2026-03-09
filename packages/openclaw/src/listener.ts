@@ -12,6 +12,7 @@
 import { ZenzapPoller } from './poller.js';
 import { ZenzapClient, type ZenzapAttachment } from '@zenzap-co/sdk';
 import type { AudioTranscriber } from './transcription.js';
+import { getTopicConversationId } from './topic-routing.js';
 
 const AUDIO_TRANSCRIPTION_TIMEOUT_MS = 10_000;
 
@@ -133,7 +134,7 @@ export class ZenzapListener {
           this.topics.set(topic.id, {
             id: topic.id,
             name: topic.name || 'Untitled',
-            conversationId: `zenzap:${topic.id}`,
+            conversationId: getTopicConversationId(topic.id),
             memberCount: Array.isArray(topic.members) ? topic.members.length : 0,
           });
         }
@@ -152,11 +153,11 @@ export class ZenzapListener {
     const info: TopicInfo = {
       id: topicId,
       name: `Topic ${topicId.slice(0, 8)}`,
-      conversationId: `zenzap:${topicId}`,
+      conversationId: getTopicConversationId(topicId),
       memberCount: 0,
     };
     this.topics.set(topicId, info);
-    this.log('info', `Auto-registered topic: zenzap:${topicId}`);
+    this.log('info', `Auto-registered topic: ${getTopicConversationId(topicId)}`);
 
     if (this.ctx.client) {
       (this.ctx.client as any)
