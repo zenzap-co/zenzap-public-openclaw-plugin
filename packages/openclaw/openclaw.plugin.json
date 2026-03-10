@@ -22,15 +22,6 @@
       "enabled": { "type": "boolean" },
       "apiKey": { "type": "string", "description": "Zenzap Bot API Key" },
       "apiSecret": { "type": "string", "description": "Zenzap Bot API Secret" },
-      "threadBindings": {
-        "type": "object",
-        "description": "ACP/session binding settings. Each Zenzap topic acts as the bindable thread surface.",
-        "additionalProperties": true,
-        "properties": {
-          "enabled": { "type": "boolean" },
-          "spawnAcpSessions": { "type": "boolean" }
-        }
-      },
       "pollTimeout": { "type": "number", "description": "Long-poll timeout in seconds" },
       "controlTopicId": { "type": "string", "description": "Topic UUID used as the bot's admin control channel" },
       "botName": { "type": "string", "description": "Bot display name (auto-detected during setup)" },
@@ -42,7 +33,6 @@
   "channelUiHints": {
     "apiKey": { "label": "API Key", "sensitive": true, "placeholder": "From Zenzap → Settings → API Keys" },
     "apiSecret": { "label": "API Secret", "sensitive": true, "placeholder": "HMAC signing secret" },
-    "threadBindings": { "label": "ACP Topic Bindings" },
     "pollTimeout": { "label": "Poll Timeout (seconds)", "placeholder": "20" },
     "controlTopicId": { "label": "Control Topic", "placeholder": "UUID of the admin topic" },
     "botName": { "label": "Bot Name", "placeholder": "Auto-detected from Zenzap" },

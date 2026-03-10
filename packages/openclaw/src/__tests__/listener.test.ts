@@ -83,38 +83,6 @@ describe('ZenzapListener', () => {
       expect(sendMessage.mock.calls[0][0].metadata.botMentioned).toBe(false);
     });
 
-    it('keeps routing bound to topicId even when parentId is present', async () => {
-      const client = makeMockClient();
-      const listener = new ZenzapListener({
-        config: { apiKey: 't', apiSecret: 's', apiUrl: 'http://x', pollTimeout: 1 },
-        botMemberId: 'bot-id',
-        client: client as any,
-        sendMessage,
-        requireMention: () => false,
-      });
-      await listener['discoverTopics']();
-      await listener['onEvent'](
-        makeEvent('message.created', {
-          message: {
-            id: `msg-${Date.now()}`,
-            topicId: 'topic-1',
-            parentId: 'parent-msg-123',
-            senderId: 'user-a',
-            senderName: 'Alice',
-            senderType: 'user',
-            type: 'text',
-            text: 'reply in topic',
-            createdAt: Date.now(),
-          },
-        }),
-      );
-
-      expect(sendMessage).toHaveBeenCalledOnce();
-      expect(sendMessage.mock.calls[0][0].conversation).toBe('zenzap:topic-1');
-      expect(sendMessage.mock.calls[0][0].metadata.topicId).toBe('topic-1');
-      expect(sendMessage.mock.calls[0][0].metadata.parentId).toBe('parent-msg-123');
-    });
-
     it('ignores message.deleted', async () => {
       const listener = new ZenzapListener({
         config: { apiKey: 't', apiSecret: 's', apiUrl: 'http://x', pollTimeout: 1 },
