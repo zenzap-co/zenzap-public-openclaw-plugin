@@ -3,9 +3,10 @@
  */
 
 import { createHash } from 'crypto';
-import { join } from 'path';
+import { dirname, join } from 'path';
 import { createRequire } from 'module';
 import { promises as fsPromises } from 'fs';
+import { pathToFileURL } from 'url';
 import { ZenzapListener } from './listener.js';
 import { ZenzapClient } from '@zenzap-co/sdk';
 import { createWhisperAudioTranscriber } from './transcription.js';
@@ -137,6 +138,10 @@ type SessionBindingRecord = {
   expiresAt?: number;
   metadata?: Record<string, unknown>;
 };
+type SessionBindingAdapterBridge = {
+  registerSessionBindingAdapter: (adapter: any) => void;
+  unregisterSessionBindingAdapter: (params: { channel: string; accountId: string }) => void;
+};
 
 function createConversationBindingKey(accountId: string, topicId: string): string {
   return `${accountId}\0${topicId}`;
@@ -266,6 +271,39 @@ function createSessionBindingRegistry(channel: string) {
       }
     },
   };
+}
+
+let sessionBindingBridgePromise: Promise<SessionBindingAdapterBridge | null> | null = null;
+
+async function loadSessionBindingBridge(): Promise<SessionBindingAdapterBridge | null> {
+  if (sessionBindingBridgePromise) return sessionBindingBridgePromise;
+  sessionBindingBridgePromise = (async () => {
+    try {
+      const hostRequire = createRequire(process.argv[1] || import.meta.url);
+      const hostPkgPath = hostRequire.resolve('openclaw/package.json');
+      const modulePath = join(
+        dirname(hostPkgPath),
+        'dist',
+        'infra',
+        'outbound',
+        'session-binding-service.js',
+      );
+      const mod = await import(pathToFileURL(modulePath).href);
+      if (
+        typeof mod?.registerSessionBindingAdapter === 'function' &&
+        typeof mod?.unregisterSessionBindingAdapter === 'function'
+      ) {
+        return {
+          registerSessionBindingAdapter: mod.registerSessionBindingAdapter,
+          unregisterSessionBindingAdapter: mod.unregisterSessionBindingAdapter,
+        };
+      }
+    } catch {
+      // Older OpenClaw versions may not expose the generic session binding service.
+    }
+    return null;
+  })();
+  return sessionBindingBridgePromise;
 }
 
 function pickAccountConfigFields(source: any): ZenzapAccountConfig {
@@ -586,25 +624,6 @@ function createChannelPlugin(getScopedClient: (accountId?: string) => ZenzapClie
       },
     },
 
-    threading: {
-      buildToolContext: ({ context, hasRepliedRef }: any) => {
-        // Match Telegram's topic/thread model: tools should use the canonical
-        // topic/thread identity, not message reply-chain inference.
-        const threadId = context.MessageThreadId;
-        const rawCurrentMessageId = context.CurrentMessageId;
-        const currentMessageId =
-          typeof rawCurrentMessageId === 'number'
-            ? rawCurrentMessageId
-            : rawCurrentMessageId?.trim() || undefined;
-        return {
-          currentChannelId: context.To?.trim() || undefined,
-          currentThreadTs: threadId != null ? String(threadId) : undefined,
-          currentMessageId,
-          hasRepliedRef,
-        };
-      },
-    },
-
     status: {
       probe: async (cfg: any) => {
         try {
@@ -863,6 +882,7 @@ const plugin = {
 
     const clientStates = new Map<string, { fingerprint: string; client: ZenzapClient }>();
     const sessionBindings = createSessionBindingRegistry(CHANNEL_ID);
+    const registeredSessionBindingAccounts = new Set<string>();
     const topicAccountRegistry = new Map<string, string>();
     const messageAccountRegistry = new Map<string, string>();
     const attachmentAccountRegistry = new Map<string, string>();
@@ -996,6 +1016,65 @@ const plugin = {
         spawnAcpSessions:
           accountThreadBindings.spawnAcpSessions ?? baseThreadBindings.spawnAcpSessions ?? false,
       };
+    };
+
+    const registerSessionBindingAdapterForAccount = async (accountId: string) => {
+      const normalizedAccountId = accountId.trim() || 'default';
+      if (registeredSessionBindingAccounts.has(normalizedAccountId)) return;
+      const bridge = await loadSessionBindingBridge();
+      if (!bridge) return;
+      bridge.registerSessionBindingAdapter({
+        channel: CHANNEL_ID,
+        accountId: normalizedAccountId,
+        bind: async (input: any) => {
+          if (input?.conversation?.channel !== CHANNEL_ID) return null;
+          const topicId = String(input?.conversation?.conversationId ?? '').trim();
+          if (!topicId) return null;
+          return sessionBindings.bind({
+            accountId: normalizedAccountId,
+            topicId,
+            targetSessionKey: String(input?.targetSessionKey ?? ''),
+            targetKind: input?.targetKind === 'subagent' ? 'subagent' : 'session',
+            metadata: input?.metadata,
+            ttlMs: typeof input?.ttlMs === 'number' ? input.ttlMs : undefined,
+          });
+        },
+        listBySession: (targetSessionKey: string) =>
+          sessionBindings
+            .listBySession(targetSessionKey)
+            .filter((record) => record.conversation.accountId === normalizedAccountId),
+        resolveByConversation: (ref: any) => {
+          if (ref?.channel !== CHANNEL_ID) return null;
+          return sessionBindings.resolveByConversation({
+            accountId: normalizedAccountId,
+            topicId: String(ref?.conversationId ?? ''),
+          });
+        },
+        touch: (bindingId: string, at?: number) => {
+          sessionBindings.touch(bindingId, at);
+        },
+        unbind: async (input: any) =>
+          sessionBindings.unbind({
+            accountId: normalizedAccountId,
+            bindingId: typeof input?.bindingId === 'string' ? input.bindingId : undefined,
+            targetSessionKey:
+              typeof input?.targetSessionKey === 'string' ? input.targetSessionKey : undefined,
+            reason: typeof input?.reason === 'string' ? input.reason : 'ended',
+          }),
+      });
+      registeredSessionBindingAccounts.add(normalizedAccountId);
+    };
+
+    const unregisterSessionBindingAdapters = async () => {
+      const bridge = await loadSessionBindingBridge();
+      if (!bridge) return;
+      for (const accountId of registeredSessionBindingAccounts) {
+        bridge.unregisterSessionBindingAdapter({
+          channel: CHANNEL_ID,
+          accountId,
+        });
+      }
+      registeredSessionBindingAccounts.clear();
     };
 
     api.registerChannel({ plugin: createChannelPlugin(getScopedClient) });
@@ -1241,6 +1320,7 @@ const plugin = {
 
           const client = getScopedClient(accountId);
           console.log('[Zenzap] ✓ API client initialized', { accountId });
+          await registerSessionBindingAdapterForAccount(accountId);
 
           let botMemberId: string | undefined;
           try {
@@ -1693,6 +1773,7 @@ const plugin = {
         botMemberIdByAccount.clear();
         activeRuntimeScopeByAccount.clear();
         activeBotFingerprintByAccount.clear();
+        await unregisterSessionBindingAdapters();
         for (const accountId of getZenzapAccountIds(api.config)) {
           sessionBindings.clearAccount(accountId);
         }
