@@ -82,10 +82,10 @@ jobs:
         uses: peter-evans/create-pull-request@v7
         with:
           token: ${{ secrets.RELEASE_PAT != '' && secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
-          commit-message: chore: release v${{ steps.release_version.outputs.version }}
+          commit-message: "chore: release v${{ steps.release_version.outputs.version }}"
           branch: release/v${{ steps.release_version.outputs.version }}
           delete-branch: true
-          title: chore: release v${{ steps.release_version.outputs.version }}
+          title: "chore: release v${{ steps.release_version.outputs.version }}"
           body: |
             Automated stable release PR for `@zenzap-co/openclaw-plugin`.
 
