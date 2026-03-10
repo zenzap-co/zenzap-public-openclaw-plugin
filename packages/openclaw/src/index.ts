@@ -3,18 +3,13 @@
  */
 
 import { createHash } from 'crypto';
-import { dirname, join } from 'path';
+import { join } from 'path';
 import { createRequire } from 'module';
 import { promises as fsPromises } from 'fs';
-import { pathToFileURL } from 'url';
 import { ZenzapListener } from './listener.js';
 import { ZenzapClient } from '@zenzap-co/sdk';
 import { createWhisperAudioTranscriber } from './transcription.js';
-import {
-  getTopicBindingPeer,
-  getTopicConversationId,
-  resolveTopicIdFromOrigin,
-} from './topic-routing.js';
+import { getTopicBindingPeer, getTopicConversationId } from './topic-routing.js';
 import { tools, createToolExecutor } from './tools.js';
 
 const CHANNEL_ID = 'zenzap';
@@ -119,191 +114,6 @@ function createScopeId(parts: Array<string | undefined>): string {
 
 function buildOffsetFilePath(stateDir: string, scopeId: string): string {
   return join(stateDir, 'zenzap', scopeId, 'update-offset.json');
-}
-
-type SessionBindingStatus = 'active' | 'ending' | 'ended';
-type SessionBindingTargetKind = 'subagent' | 'session';
-type SessionBindingRecord = {
-  bindingId: string;
-  targetSessionKey: string;
-  targetKind: SessionBindingTargetKind;
-  conversation: {
-    channel: string;
-    accountId: string;
-    conversationId: string;
-    parentConversationId?: string;
-  };
-  status: SessionBindingStatus;
-  boundAt: number;
-  expiresAt?: number;
-  metadata?: Record<string, unknown>;
-};
-type SessionBindingAdapterBridge = {
-  registerSessionBindingAdapter: (adapter: any) => void;
-  unregisterSessionBindingAdapter: (params: { channel: string; accountId: string }) => void;
-};
-
-function createConversationBindingKey(accountId: string, topicId: string): string {
-  return `${accountId}\0${topicId}`;
-}
-
-function createSessionBindingRegistry(channel: string) {
-  const recordsById = new Map<string, SessionBindingRecord>();
-  const bindingIdByConversation = new Map<string, string>();
-  const bindingIdsBySession = new Map<string, Set<string>>();
-
-  const addToSessionIndex = (bindingId: string, targetSessionKey: string) => {
-    const set = bindingIdsBySession.get(targetSessionKey) ?? new Set<string>();
-    set.add(bindingId);
-    bindingIdsBySession.set(targetSessionKey, set);
-  };
-
-  const removeFromSessionIndex = (bindingId: string, targetSessionKey: string) => {
-    const set = bindingIdsBySession.get(targetSessionKey);
-    if (!set) return;
-    set.delete(bindingId);
-    if (set.size === 0) bindingIdsBySession.delete(targetSessionKey);
-  };
-
-  const removeBinding = (bindingId: string): SessionBindingRecord | null => {
-    const record = recordsById.get(bindingId);
-    if (!record) return null;
-    recordsById.delete(bindingId);
-    bindingIdByConversation.delete(
-      createConversationBindingKey(record.conversation.accountId, record.conversation.conversationId),
-    );
-    removeFromSessionIndex(bindingId, record.targetSessionKey);
-    return record;
-  };
-
-  return {
-    bind(params: {
-      accountId: string;
-      topicId: string;
-      targetSessionKey: string;
-      targetKind?: SessionBindingTargetKind;
-      metadata?: Record<string, unknown>;
-      ttlMs?: number;
-    }): SessionBindingRecord {
-      const accountId = params.accountId.trim() || 'default';
-      const topicId = params.topicId.trim();
-      const targetSessionKey = params.targetSessionKey.trim();
-      const conversationKey = createConversationBindingKey(accountId, topicId);
-      const existingBindingId = bindingIdByConversation.get(conversationKey);
-      const boundAt = Date.now();
-      const expiresAt =
-        typeof params.ttlMs === 'number' && Number.isFinite(params.ttlMs) && params.ttlMs > 0
-          ? boundAt + params.ttlMs
-          : undefined;
-      const bindingId = existingBindingId ?? createScopeId([channel, accountId, topicId]);
-      const previous = existingBindingId ? removeBinding(existingBindingId) : null;
-      const record: SessionBindingRecord = {
-        bindingId,
-        targetSessionKey,
-        targetKind: params.targetKind ?? 'session',
-        conversation: {
-          channel,
-          accountId,
-          conversationId: topicId,
-        },
-        status: 'active',
-        boundAt,
-        expiresAt,
-        metadata: params.metadata,
-      };
-      if (previous && previous.bindingId !== bindingId) {
-        removeFromSessionIndex(previous.bindingId, previous.targetSessionKey);
-      }
-      recordsById.set(bindingId, record);
-      bindingIdByConversation.set(conversationKey, bindingId);
-      addToSessionIndex(bindingId, targetSessionKey);
-      return record;
-    },
-    listBySession(targetSessionKey: string): SessionBindingRecord[] {
-      const ids = bindingIdsBySession.get(targetSessionKey.trim()) ?? new Set<string>();
-      return [...ids]
-        .map((bindingId) => recordsById.get(bindingId))
-        .filter((record): record is SessionBindingRecord => Boolean(record));
-    },
-    resolveByConversation(params: { accountId: string; topicId: string }): SessionBindingRecord | null {
-      const bindingId = bindingIdByConversation.get(
-        createConversationBindingKey(params.accountId.trim() || 'default', params.topicId.trim()),
-      );
-      if (!bindingId) return null;
-      return recordsById.get(bindingId) ?? null;
-    },
-    touch(_bindingId: string, _at?: number): void {
-      // Topic bindings stay alive until explicitly unbound.
-    },
-    unbind(params: {
-      accountId?: string;
-      bindingId?: string;
-      targetSessionKey?: string;
-      reason: string;
-    }): SessionBindingRecord[] {
-      const removed: SessionBindingRecord[] = [];
-      if (params.bindingId?.trim()) {
-        const record = removeBinding(params.bindingId.trim());
-        if (record) removed.push({ ...record, status: 'ended', metadata: { ...record.metadata, reason: params.reason } });
-        return removed;
-      }
-      const targetSessionKey = params.targetSessionKey?.trim();
-      if (!targetSessionKey) return removed;
-      const accountId = params.accountId?.trim();
-      for (const record of this.listBySession(targetSessionKey)) {
-        if (accountId && record.conversation.accountId !== accountId) continue;
-        const removedRecord = removeBinding(record.bindingId);
-        if (removedRecord) {
-          removed.push({
-            ...removedRecord,
-            status: 'ended',
-            metadata: { ...removedRecord.metadata, reason: params.reason },
-          });
-        }
-      }
-      return removed;
-    },
-    clearAccount(accountId: string): void {
-      const normalized = accountId.trim() || 'default';
-      for (const record of [...recordsById.values()]) {
-        if (record.conversation.accountId !== normalized) continue;
-        removeBinding(record.bindingId);
-      }
-    },
-  };
-}
-
-let sessionBindingBridgePromise: Promise<SessionBindingAdapterBridge | null> | null = null;
-
-async function loadSessionBindingBridge(): Promise<SessionBindingAdapterBridge | null> {
-  if (sessionBindingBridgePromise) return sessionBindingBridgePromise;
-  sessionBindingBridgePromise = (async () => {
-    try {
-      const hostRequire = createRequire(process.argv[1] || import.meta.url);
-      const hostPkgPath = hostRequire.resolve('openclaw/package.json');
-      const modulePath = join(
-        dirname(hostPkgPath),
-        'dist',
-        'infra',
-        'outbound',
-        'session-binding-service.js',
-      );
-      const mod = await import(pathToFileURL(modulePath).href);
-      if (
-        typeof mod?.registerSessionBindingAdapter === 'function' &&
-        typeof mod?.unregisterSessionBindingAdapter === 'function'
-      ) {
-        return {
-          registerSessionBindingAdapter: mod.registerSessionBindingAdapter,
-          unregisterSessionBindingAdapter: mod.unregisterSessionBindingAdapter,
-        };
-      }
-    } catch {
-      // Older OpenClaw versions may not expose the generic session binding service.
-    }
-    return null;
-  })();
-  return sessionBindingBridgePromise;
 }
 
 function pickAccountConfigFields(source: any): ZenzapAccountConfig {
@@ -613,11 +423,8 @@ function createChannelPlugin(getScopedClient: (accountId?: string) => ZenzapClie
 
     outbound: {
       deliveryMode: 'direct',
-      sendText: async ({ to, text, accountId, threadId }: any): Promise<any> => {
-        const topicId = resolveTopicIdFromOrigin({ to, threadId });
-        if (!topicId) {
-          throw new Error('Zenzap outbound target is missing a topicId');
-        }
+      sendText: async ({ to, text, accountId }: any): Promise<any> => {
+        const topicId = to?.startsWith(`${CHANNEL_ID}:`) ? to.slice(CHANNEL_ID.length + 1) : to;
         const client = getScopedClient(accountId);
         await client.sendMessage({ topicId, text });
         return { ok: true };
@@ -881,8 +688,6 @@ const plugin = {
     console.log('[Zenzap] Registering plugin...');
 
     const clientStates = new Map<string, { fingerprint: string; client: ZenzapClient }>();
-    const sessionBindings = createSessionBindingRegistry(CHANNEL_ID);
-    const registeredSessionBindingAccounts = new Set<string>();
     const topicAccountRegistry = new Map<string, string>();
     const messageAccountRegistry = new Map<string, string>();
     const attachmentAccountRegistry = new Map<string, string>();
@@ -1002,175 +807,7 @@ const plugin = {
       getScopedClient(inferAccountIdFromInput(input) ?? 'default'),
     );
 
-    const resolveThreadBindingFlags = (accountId = 'default') => {
-      const channelCfg = getZenzapChannelConfig(api.config);
-      const accountCfg = getResolvedZenzapAccountConfig(api.config, accountId);
-      const baseThreadBindings = channelCfg?.threadBindings ?? {};
-      const accountThreadBindings = accountCfg?.threadBindings ?? {};
-      return {
-        enabled:
-          accountThreadBindings.enabled ??
-          baseThreadBindings.enabled ??
-          api.config?.session?.threadBindings?.enabled ??
-          true,
-        spawnAcpSessions:
-          accountThreadBindings.spawnAcpSessions ?? baseThreadBindings.spawnAcpSessions ?? false,
-      };
-    };
-
-    const registerSessionBindingAdapterForAccount = async (accountId: string) => {
-      const normalizedAccountId = accountId.trim() || 'default';
-      if (registeredSessionBindingAccounts.has(normalizedAccountId)) return;
-      const bridge = await loadSessionBindingBridge();
-      if (!bridge) return;
-      bridge.registerSessionBindingAdapter({
-        channel: CHANNEL_ID,
-        accountId: normalizedAccountId,
-        bind: async (input: any) => {
-          if (input?.conversation?.channel !== CHANNEL_ID) return null;
-          const topicId = String(input?.conversation?.conversationId ?? '').trim();
-          if (!topicId) return null;
-          return sessionBindings.bind({
-            accountId: normalizedAccountId,
-            topicId,
-            targetSessionKey: String(input?.targetSessionKey ?? ''),
-            targetKind: input?.targetKind === 'subagent' ? 'subagent' : 'session',
-            metadata: input?.metadata,
-            ttlMs: typeof input?.ttlMs === 'number' ? input.ttlMs : undefined,
-          });
-        },
-        listBySession: (targetSessionKey: string) =>
-          sessionBindings
-            .listBySession(targetSessionKey)
-            .filter((record) => record.conversation.accountId === normalizedAccountId),
-        resolveByConversation: (ref: any) => {
-          if (ref?.channel !== CHANNEL_ID) return null;
-          return sessionBindings.resolveByConversation({
-            accountId: normalizedAccountId,
-            topicId: String(ref?.conversationId ?? ''),
-          });
-        },
-        touch: (bindingId: string, at?: number) => {
-          sessionBindings.touch(bindingId, at);
-        },
-        unbind: async (input: any) =>
-          sessionBindings.unbind({
-            accountId: normalizedAccountId,
-            bindingId: typeof input?.bindingId === 'string' ? input.bindingId : undefined,
-            targetSessionKey:
-              typeof input?.targetSessionKey === 'string' ? input.targetSessionKey : undefined,
-            reason: typeof input?.reason === 'string' ? input.reason : 'ended',
-          }),
-      });
-      registeredSessionBindingAccounts.add(normalizedAccountId);
-    };
-
-    const unregisterSessionBindingAdapters = async () => {
-      const bridge = await loadSessionBindingBridge();
-      if (!bridge) return;
-      for (const accountId of registeredSessionBindingAccounts) {
-        bridge.unregisterSessionBindingAdapter({
-          channel: CHANNEL_ID,
-          accountId,
-        });
-      }
-      registeredSessionBindingAccounts.clear();
-    };
-
     api.registerChannel({ plugin: createChannelPlugin(getScopedClient) });
-
-    api.on?.('subagent_spawning', async (event: any) => {
-      if (!event?.threadRequested) return;
-      const channel = String(event?.requester?.channel ?? '').trim().toLowerCase();
-      if (channel !== CHANNEL_ID) return;
-
-      const accountId = String(event?.requester?.accountId ?? 'default').trim() || 'default';
-      const flags = resolveThreadBindingFlags(accountId);
-      if (!flags.enabled) {
-        return {
-          status: 'error' as const,
-          error:
-            'Zenzap topic bindings are disabled (set channels.zenzap.threadBindings.enabled=true to override for this account, or session.threadBindings.enabled=true globally).',
-        };
-      }
-      if (!flags.spawnAcpSessions) {
-        return {
-          status: 'error' as const,
-          error:
-            'Zenzap ACP topic-bound spawns are disabled for this account (set channels.zenzap.threadBindings.spawnAcpSessions=true to enable).',
-        };
-      }
-
-      const topicId = resolveTopicIdFromOrigin({
-        threadId: event?.requester?.threadId,
-        to: event?.requester?.to,
-      });
-      if (!topicId) {
-        return {
-          status: 'error' as const,
-          error:
-            'Unable to resolve the active Zenzap topic for this ACP/session bind. Run the command from an active Zenzap topic.',
-        };
-      }
-
-      rememberTopicAccount(topicId, accountId);
-      sessionBindings.bind({
-        accountId,
-        topicId,
-        targetSessionKey: String(event?.childSessionKey ?? ''),
-        targetKind: String(event?.childSessionKey ?? '').includes(':subagent:') ? 'subagent' : 'session',
-        metadata: {
-          agentId: typeof event?.agentId === 'string' ? event.agentId : undefined,
-          label: typeof event?.label === 'string' ? event.label : undefined,
-          boundBy: 'system',
-        },
-      });
-      return { status: 'ok' as const, threadBindingReady: true };
-    });
-
-    api.on?.('subagent_delivery_target', async (event: any) => {
-      if (!event?.expectsCompletionMessage) return;
-
-      const bindings = sessionBindings.listBySession(String(event?.childSessionKey ?? ''));
-      if (bindings.length === 0) return;
-
-      const requesterChannel = String(event?.requesterOrigin?.channel ?? '').trim().toLowerCase();
-      const requesterAccountId = String(event?.requesterOrigin?.accountId ?? '').trim();
-      const requesterTopicId = resolveTopicIdFromOrigin({
-        threadId: event?.requesterOrigin?.threadId,
-        to: event?.requesterOrigin?.to,
-      });
-
-      let binding = bindings.find((entry) => {
-        if (requesterChannel && requesterChannel !== CHANNEL_ID) return false;
-        if (requesterAccountId && entry.conversation.accountId !== requesterAccountId) return false;
-        if (requesterTopicId && entry.conversation.conversationId !== requesterTopicId) return false;
-        return true;
-      });
-      if (!binding && bindings.length === 1) {
-        binding = bindings[0];
-      }
-      if (!binding) return;
-
-      return {
-        origin: {
-          channel: CHANNEL_ID,
-          accountId: binding.conversation.accountId,
-          to: getTopicConversationId(binding.conversation.conversationId),
-          threadId: binding.conversation.conversationId,
-        },
-      };
-    });
-
-    api.on?.('subagent_ended', async (event: any) => {
-      const targetSessionKey = String(event?.targetSessionKey ?? '').trim();
-      if (!targetSessionKey) return;
-      sessionBindings.unbind({
-        accountId: typeof event?.accountId === 'string' ? event.accountId : undefined,
-        targetSessionKey,
-        reason: typeof event?.reason === 'string' ? event.reason : 'ended',
-      });
-    });
 
     for (const tool of tools) {
       api.registerTool({
@@ -1320,7 +957,6 @@ const plugin = {
 
           const client = getScopedClient(accountId);
           console.log('[Zenzap] ✓ API client initialized', { accountId });
-          await registerSessionBindingAdapterForAccount(accountId);
 
           let botMemberId: string | undefined;
           try {
@@ -1504,9 +1140,6 @@ const plugin = {
                 SenderName: msg.metadata?.sender || undefined,
                 SenderId: msg.source || undefined,
                 GroupSubject: msg.metadata?.topicName || `Zenzap Topic`,
-                ThreadLabel: `Zenzap topic "${sanitizeForPrompt(msg.metadata?.topicName || topicId)}"`,
-                MessageThreadId: topicId,
-                CurrentMessageId: msg.metadata?.messageId,
                 GroupSystemPrompt: groupSystemPrompt,
                 Provider: CHANNEL_ID,
                 Surface: CHANNEL_ID,
@@ -1773,10 +1406,6 @@ const plugin = {
         botMemberIdByAccount.clear();
         activeRuntimeScopeByAccount.clear();
         activeBotFingerprintByAccount.clear();
-        await unregisterSessionBindingAdapters();
-        for (const accountId of getZenzapAccountIds(api.config)) {
-          sessionBindings.clearAccount(accountId);
-        }
       },
     });
 

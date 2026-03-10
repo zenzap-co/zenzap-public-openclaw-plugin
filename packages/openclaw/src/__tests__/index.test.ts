@@ -2,100 +2,6 @@ import { describe, expect, it, vi } from 'vitest';
 import plugin from '../index.js';
 
 describe('Zenzap channel multi-account config', () => {
-  it('registers ACP topic-binding hooks for Zenzap topics', async () => {
-    const registerChannel = vi.fn();
-    const hooks = new Map<string, any>();
-    plugin.register({
-      config: {
-        channels: {
-          zenzap: {
-            enabled: true,
-            accounts: {
-              'agent-a': {
-                apiKey: 'key-a',
-                apiSecret: 'secret-a',
-                threadBindings: { enabled: true, spawnAcpSessions: true },
-              },
-            },
-          },
-        },
-      },
-      registerChannel,
-      registerTool: vi.fn(),
-      registerService: vi.fn(),
-      registerCommand: vi.fn(),
-      registerCli: vi.fn(),
-      on: vi.fn((name: string, handler: any) => hooks.set(name, handler)),
-      runtime: {},
-    });
-
-    const spawnHandler = hooks.get('subagent_spawning');
-    const deliveryHandler = hooks.get('subagent_delivery_target');
-    const endedHandler = hooks.get('subagent_ended');
-
-    expect(spawnHandler).toBeTypeOf('function');
-    expect(deliveryHandler).toBeTypeOf('function');
-    expect(endedHandler).toBeTypeOf('function');
-
-    const spawnResult = await spawnHandler({
-      childSessionKey: 'agent:codex:acp:session-1',
-      agentId: 'codex',
-      label: 'repo work',
-      mode: 'session',
-      requester: {
-        channel: 'zenzap',
-        accountId: 'agent-a',
-        to: 'zenzap:topic-1',
-        threadId: 'topic-1',
-      },
-      threadRequested: true,
-    });
-
-    expect(spawnResult).toEqual({ status: 'ok', threadBindingReady: true });
-
-    const deliveryResult = await deliveryHandler({
-      childSessionKey: 'agent:codex:acp:session-1',
-      requesterSessionKey: 'agent:main:main',
-      requesterOrigin: {
-        channel: 'zenzap',
-        accountId: 'agent-a',
-        to: 'zenzap:topic-1',
-        threadId: 'topic-1',
-      },
-      expectsCompletionMessage: true,
-    });
-
-    expect(deliveryResult).toMatchObject({
-      origin: {
-        channel: 'zenzap',
-        accountId: 'agent-a',
-        to: 'zenzap:topic-1',
-        threadId: 'topic-1',
-      },
-    });
-
-    await endedHandler({
-      targetSessionKey: 'agent:codex:acp:session-1',
-      targetKind: 'acp',
-      reason: 'completed',
-      accountId: 'agent-a',
-    });
-
-    const postEndDelivery = await deliveryHandler({
-      childSessionKey: 'agent:codex:acp:session-1',
-      requesterSessionKey: 'agent:main:main',
-      requesterOrigin: {
-        channel: 'zenzap',
-        accountId: 'agent-a',
-        to: 'zenzap:topic-1',
-        threadId: 'topic-1',
-      },
-      expectsCompletionMessage: true,
-    });
-
-    expect(postEndDelivery).toBeUndefined();
-  });
-
   it('advertises topic-bound ACP bindings via thread capabilities and config', () => {
     const registerChannel = vi.fn();
     plugin.register({
@@ -105,7 +11,6 @@ describe('Zenzap channel multi-account config', () => {
       registerService: vi.fn(),
       registerCommand: vi.fn(),
       registerCli: vi.fn(),
-      on: vi.fn(),
       runtime: {},
     });
 
@@ -149,7 +54,6 @@ describe('Zenzap channel multi-account config', () => {
       registerService: vi.fn(),
       registerCommand: vi.fn(),
       registerCli: vi.fn(),
-      on: vi.fn(),
       runtime: {},
     });
 
@@ -187,7 +91,6 @@ describe('Zenzap channel multi-account config', () => {
       registerService: vi.fn(),
       registerCommand: vi.fn(),
       registerCli: vi.fn(),
-      on: vi.fn(),
       runtime: {},
     });
 
