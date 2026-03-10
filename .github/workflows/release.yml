@@ -76,7 +76,9 @@ jobs:
 
       - name: Read release version
         id: release_version
-        run: echo "version=$(node -p \"require('./packages/openclaw/package.json').version\")" >> "$GITHUB_OUTPUT"
+        run: |
+          VERSION=$(node -p 'require("./packages/openclaw/package.json").version')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Create release pull request
         uses: peter-evans/create-pull-request@v7
@@ -131,7 +133,9 @@ jobs:
 
       - name: Read release version
         id: merged_release_version
-        run: echo "version=$(node -p \"require('./packages/openclaw/package.json').version\")" >> "$GITHUB_OUTPUT"
+        run: |
+          VERSION=$(node -p 'require("./packages/openclaw/package.json").version')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Create release tag
         run: git tag "v${{ steps.merged_release_version.outputs.version }}"
