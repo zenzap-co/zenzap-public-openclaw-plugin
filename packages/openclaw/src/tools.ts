@@ -2,7 +2,7 @@
  * OpenClaw Tools for Zenzap
  */
 
-import { getClient } from '@zenzap-co/sdk';
+import { getClient, type ZenzapClient } from '@zenzap-co/sdk';
 
 const PROFILE_ID_PATTERN = /^(?:[ub]@)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -405,160 +405,186 @@ export const tools = [
   },
 ];
 
-export async function executeTool(toolId: string, input: any): Promise<any> {
-  const client = getClient();
+const ACCOUNT_ID_SCHEMA = {
+  type: 'string',
+  description:
+    'Optional Zenzap account ID to use in multi-account setups. Usually omitted for single-account setups.',
+};
 
-  switch (toolId) {
-    case 'zenzap_get_me':
-      return client.getCurrentMember();
-
-    case 'zenzap_send_message': {
-      const topicId = typeof input?.topicId === 'string' ? input.topicId.trim() : '';
-      if (!topicId) {
-        throw new Error('topicId is required and must be a non-empty string.');
-      }
-      if (typeof input?.text !== 'string') {
-        throw new Error('text must be a string.');
-      }
-      const mentionIds = normalizeMentionIds(input.mentions);
-      const text = applyMentionsToText(input.text, mentionIds);
-      return client.sendMessage({ topicId, text });
-    }
-
-    case 'zenzap_send_image': {
-      const hasImageUrl = typeof input.imageUrl === 'string' && input.imageUrl.trim().length > 0;
-      const hasImageBase64 = typeof input.imageBase64 === 'string' && input.imageBase64.trim().length > 0;
-      if (hasImageUrl === hasImageBase64) {
-        throw new Error('Provide exactly one of imageUrl or imageBase64.');
-      }
-      return client.sendImageMessage({
-        topicId: input.topicId,
-        imageUrl: hasImageUrl ? input.imageUrl : undefined,
-        imageBase64: hasImageBase64 ? input.imageBase64 : undefined,
-        mimeType: input.mimeType,
-        caption: input.caption,
-        externalId: input.externalId,
-        fileName: input.fileName,
-      });
-    }
-
-    case 'zenzap_create_topic':
-      return client.createTopic({
-        name: input.name,
-        members: input.members,
-        description: input.description,
-        externalId: input.externalId,
-      });
-
-    case 'zenzap_get_topic':
-      return client.getTopicDetails(input.topicId);
-
-    case 'zenzap_update_topic':
-      return client.updateTopic(input.topicId, {
-        name: input.name,
-        description: input.description,
-      });
-
-    case 'zenzap_add_members':
-      return client.addMembersToTopic(input.topicId, input.members);
-
-    case 'zenzap_remove_members':
-      return client.removeMembersFromTopic(input.topicId, input.members);
-
-    case 'zenzap_get_member':
-      return client.getMember(input.memberId);
-
-    case 'zenzap_list_members':
-      return client.listMembers({
-        limit: input.limit || 50,
-        cursor: input.cursor,
-        emails: input.emails ?? input.email,
-      });
-
-    case 'zenzap_list_topics':
-      return client.listTopics({ limit: input.limit || 50, cursor: input.cursor });
-
-    case 'zenzap_list_tasks':
-      return client.listTasks({
-        topicId: input.topicId,
-        status: input.status,
-        assignee: input.assignee,
-        limit: input.limit || 50,
-        cursor: input.cursor,
-      });
-
-    case 'zenzap_get_task':
-      return client.getTask(input.taskId);
-
-    case 'zenzap_get_messages':
-      return client.getTopicMessages(input.topicId, {
-        limit: input.limit,
-        order: input.order,
-        before: input.before,
-        after: input.after,
-        cursor: input.cursor,
-      });
-
-    case 'zenzap_react':
-      return client.addReaction(input.messageId, input.reaction);
-
-    case 'zenzap_create_task':
-      return client.createTask({
-        topicId: input.topicId,
-        title: input.title,
-        description: input.description,
-        assignee: input.assignee ?? (Array.isArray(input.assignees) ? input.assignees[0] : undefined),
-        dueDate: input.dueDate,
-      });
-
-    case 'zenzap_create_poll':
-      return client.createPoll({
-        topicId: input.topicId,
-        question: input.question,
-        options: input.options,
-        selectionType: input.selectionType,
-        subtitle: input.subtitle,
-        anonymous: input.anonymous,
-        expiresAt: input.expiresAt,
-      });
-
-    case 'zenzap_cast_poll_vote':
-      return client.castPollVote(input.attachmentId, input.optionId);
-
-    case 'zenzap_delete_poll_vote':
-      return client.deletePollVote(input.attachmentId, input.voteId);
-
-    case 'zenzap_update_task': {
-      if (input.name !== undefined && input.title !== undefined) {
-        throw new Error('Provide either name or title, not both.');
-      }
-      if (
-        input.name === undefined &&
-        input.title === undefined &&
-        input.description === undefined &&
-        input.assignee === undefined &&
-        input.dueDate === undefined &&
-        input.status === undefined
-      ) {
-        throw new Error(
-          'At least one field must be provided: name/title, description, assignee, dueDate, or status.',
-        );
-      }
-      if (input.status !== undefined && !input.topicId) {
-        throw new Error('topicId is required when updating task status.');
-      }
-      return client.updateTask(input.taskId, {
-        topicId: input.topicId,
-        name: input.name,
-        title: input.title,
-        description: input.description,
-        assignee: input.assignee,
-        dueDate: input.dueDate,
-        status: input.status,
-      });
-    }
-
-    default:
-      throw new Error(`Unknown tool: ${toolId}`);
+for (const tool of tools) {
+  const properties = ((tool.inputSchema as any).properties ??= {});
+  if (!properties.accountId) {
+    properties.accountId = ACCOUNT_ID_SCHEMA;
   }
 }
+
+type ClientResolverContext = {
+  toolId: string;
+  input: any;
+  toolCallId?: string;
+};
+
+type ClientResolver = (context: ClientResolverContext) => ZenzapClient;
+
+export function createToolExecutor(resolveClient: ClientResolver) {
+  return async function executeTool(toolId: string, input: any, toolCallId?: string): Promise<any> {
+    const client = resolveClient({ toolId, input, toolCallId });
+
+    switch (toolId) {
+      case 'zenzap_get_me':
+        return client.getCurrentMember();
+
+      case 'zenzap_send_message': {
+        const topicId = typeof input?.topicId === 'string' ? input.topicId.trim() : '';
+        if (!topicId) {
+          throw new Error('topicId is required and must be a non-empty string.');
+        }
+        if (typeof input?.text !== 'string') {
+          throw new Error('text must be a string.');
+        }
+        const mentionIds = normalizeMentionIds(input.mentions);
+        const text = applyMentionsToText(input.text, mentionIds);
+        return client.sendMessage({ topicId, text });
+      }
+
+      case 'zenzap_send_image': {
+        const hasImageUrl = typeof input.imageUrl === 'string' && input.imageUrl.trim().length > 0;
+        const hasImageBase64 =
+          typeof input.imageBase64 === 'string' && input.imageBase64.trim().length > 0;
+        if (hasImageUrl === hasImageBase64) {
+          throw new Error('Provide exactly one of imageUrl or imageBase64.');
+        }
+        return client.sendImageMessage({
+          topicId: input.topicId,
+          imageUrl: hasImageUrl ? input.imageUrl : undefined,
+          imageBase64: hasImageBase64 ? input.imageBase64 : undefined,
+          mimeType: input.mimeType,
+          caption: input.caption,
+          externalId: input.externalId,
+          fileName: input.fileName,
+        });
+      }
+
+      case 'zenzap_create_topic':
+        return client.createTopic({
+          name: input.name,
+          members: input.members,
+          description: input.description,
+          externalId: input.externalId,
+        });
+
+      case 'zenzap_get_topic':
+        return client.getTopicDetails(input.topicId);
+
+      case 'zenzap_update_topic':
+        return client.updateTopic(input.topicId, {
+          name: input.name,
+          description: input.description,
+        });
+
+      case 'zenzap_add_members':
+        return client.addMembersToTopic(input.topicId, input.members);
+
+      case 'zenzap_remove_members':
+        return client.removeMembersFromTopic(input.topicId, input.members);
+
+      case 'zenzap_get_member':
+        return client.getMember(input.memberId);
+
+      case 'zenzap_list_members':
+        return client.listMembers({
+          limit: input.limit || 50,
+          cursor: input.cursor,
+          emails: input.emails ?? input.email,
+        });
+
+      case 'zenzap_list_topics':
+        return client.listTopics({ limit: input.limit || 50, cursor: input.cursor });
+
+      case 'zenzap_list_tasks':
+        return client.listTasks({
+          topicId: input.topicId,
+          status: input.status,
+          assignee: input.assignee,
+          limit: input.limit || 50,
+          cursor: input.cursor,
+        });
+
+      case 'zenzap_get_task':
+        return client.getTask(input.taskId);
+
+      case 'zenzap_get_messages':
+        return client.getTopicMessages(input.topicId, {
+          limit: input.limit,
+          order: input.order,
+          before: input.before,
+          after: input.after,
+          cursor: input.cursor,
+        });
+
+      case 'zenzap_react':
+        return client.addReaction(input.messageId, input.reaction);
+
+      case 'zenzap_create_task':
+        return client.createTask({
+          topicId: input.topicId,
+          title: input.title,
+          description: input.description,
+          assignee: input.assignee ?? (Array.isArray(input.assignees) ? input.assignees[0] : undefined),
+          dueDate: input.dueDate,
+        });
+
+      case 'zenzap_create_poll':
+        return client.createPoll({
+          topicId: input.topicId,
+          question: input.question,
+          options: input.options,
+          selectionType: input.selectionType,
+          subtitle: input.subtitle,
+          anonymous: input.anonymous,
+          expiresAt: input.expiresAt,
+        });
+
+      case 'zenzap_cast_poll_vote':
+        return client.castPollVote(input.attachmentId, input.optionId);
+
+      case 'zenzap_delete_poll_vote':
+        return client.deletePollVote(input.attachmentId, input.voteId);
+
+      case 'zenzap_update_task': {
+        if (input.name !== undefined && input.title !== undefined) {
+          throw new Error('Provide either name or title, not both.');
+        }
+        if (
+          input.name === undefined &&
+          input.title === undefined &&
+          input.description === undefined &&
+          input.assignee === undefined &&
+          input.dueDate === undefined &&
+          input.status === undefined
+        ) {
+          throw new Error(
+            'At least one field must be provided: name/title, description, assignee, dueDate, or status.',
+          );
+        }
+        if (input.status !== undefined && !input.topicId) {
+          throw new Error('topicId is required when updating task status.');
+        }
+        return client.updateTask(input.taskId, {
+          topicId: input.topicId,
+          name: input.name,
+          title: input.title,
+          description: input.description,
+          assignee: input.assignee,
+          dueDate: input.dueDate,
+          status: input.status,
+        });
+      }
+
+      default:
+        throw new Error(`Unknown tool: ${toolId}`);
+    }
+  };
+}
+
+export const executeTool = createToolExecutor(() => getClient());
