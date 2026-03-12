@@ -296,10 +296,10 @@ describe('ZenzapListener', () => {
       expect(sendMessage).toHaveBeenCalledOnce();
       expect(sendMessage.mock.calls[0][0].text).toContain('Message type: image');
       expect(sendMessage.mock.calls[0][0].text).toContain('Attachments (1):');
-      expect(sendMessage.mock.calls[0][0].mediaUrls).toEqual([
+      expect(sendMessage.mock.calls[0][0].MediaUrls).toEqual([
         'https://files.example/shot.png',
       ]);
-      expect(sendMessage.mock.calls[0][0].mediaTypes).toEqual(['image/png']);
+      expect(sendMessage.mock.calls[0][0].MediaTypes).toEqual(['image/png']);
     });
 
     it('infers MIME type from file extension in URL', async () => {
@@ -326,12 +326,12 @@ describe('ZenzapListener', () => {
         }),
       );
       expect(sendMessage).toHaveBeenCalledOnce();
-      expect(sendMessage.mock.calls[0][0].mediaUrls).toEqual([
+      expect(sendMessage.mock.calls[0][0].MediaUrls).toEqual([
         'https://files.example/photo.webp?token=abc',
         'https://files.example/clip',
       ]);
       // webp from URL extension, mov from name (URL has no extension)
-      expect(sendMessage.mock.calls[0][0].mediaTypes).toEqual([
+      expect(sendMessage.mock.calls[0][0].MediaTypes).toEqual([
         'image/webp',
         'video/quicktime',
       ]);
@@ -360,8 +360,8 @@ describe('ZenzapListener', () => {
         }),
       );
       expect(sendMessage).toHaveBeenCalledOnce();
-      expect(sendMessage.mock.calls[0][0].mediaUrls).toBeUndefined();
-      expect(sendMessage.mock.calls[0][0].mediaTypes).toBeUndefined();
+      expect(sendMessage.mock.calls[0][0].MediaUrls).toBeUndefined();
+      expect(sendMessage.mock.calls[0][0].MediaTypes).toBeUndefined();
     });
 
     it('uses local transcriber fallback for audio when upstream transcription is pending', async () => {
