@@ -329,22 +329,22 @@ export class ZenzapListener {
   }
 
   private extractMediaFromAttachments(attachments: ZenzapAttachment[]): {
-    mediaUrls: string[];
-    mediaTypes: string[];
+    MediaUrls: string[];
+    MediaTypes: string[];
   } {
-    const mediaUrls: string[] = [];
-    const mediaTypes: string[] = [];
+    const MediaUrls: string[] = [];
+    const MediaTypes: string[] = [];
     for (const attachment of attachments) {
       if (
         attachment.url &&
         attachment.type &&
         ZenzapListener.MEDIA_ATTACHMENT_TYPES.has(attachment.type)
       ) {
-        mediaUrls.push(attachment.url);
-        mediaTypes.push(ZenzapListener.inferMimeType(attachment));
+        MediaUrls.push(attachment.url);
+        MediaTypes.push(ZenzapListener.inferMimeType(attachment));
       }
     }
-    return { mediaUrls, mediaTypes };
+    return { MediaUrls, MediaTypes };
   }
 
   private summarizeAttachment(attachment: ZenzapAttachment, index: number): string {
@@ -612,11 +612,11 @@ export class ZenzapListener {
     if (this.ctx.sendMessage) {
       try {
         const attachments = this.normalizeAttachments(msg);
-        const { mediaUrls, mediaTypes } = this.extractMediaFromAttachments(attachments);
-        if (mediaUrls.length > 0) {
-          this.log('info', `Attaching ${mediaUrls.length} media item(s) for message ${msg?.id}`, {
-            mediaUrls,
-            mediaTypes,
+        const { MediaUrls, MediaTypes } = this.extractMediaFromAttachments(attachments);
+        if (MediaUrls.length > 0) {
+          this.log('info', `Attaching ${MediaUrls.length} media item(s) for message ${msg?.id}`, {
+            MediaUrls,
+            MediaTypes,
           });
         }
         await this.ctx.sendMessage({
@@ -624,7 +624,7 @@ export class ZenzapListener {
           conversation: topic.conversationId,
           source: msg?.senderId,
           text: formattedBody,
-          ...(mediaUrls.length > 0 && { mediaUrls, mediaTypes }),
+          ...(MediaUrls.length > 0 && { MediaUrls, MediaTypes }),
           timestamp: new Date(msg?.updatedAt || msg?.createdAt || Date.now()).toISOString(),
           metadata: {
             topicId: topic.id,
