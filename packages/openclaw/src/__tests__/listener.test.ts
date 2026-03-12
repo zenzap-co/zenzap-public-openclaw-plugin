@@ -296,6 +296,37 @@ describe('ZenzapListener', () => {
       expect(sendMessage).toHaveBeenCalledOnce();
       expect(sendMessage.mock.calls[0][0].text).toContain('Message type: image');
       expect(sendMessage.mock.calls[0][0].text).toContain('Attachments (1):');
+      expect(sendMessage.mock.calls[0][0].mediaUrls).toEqual([
+        'https://files.example/shot.png',
+      ]);
+      expect(sendMessage.mock.calls[0][0].mediaTypes).toEqual(['image/jpeg']);
+    });
+
+    it('does not include mediaUrls for non-media attachments', async () => {
+      const listener = new ZenzapListener({
+        config: { apiKey: 't', apiSecret: 's', apiUrl: 'http://x', pollTimeout: 1 },
+        sendMessage,
+      });
+      await listener['onEvent'](
+        makeEvent('message.created', {
+          message: {
+            id: `msg-${Date.now()}`,
+            topicId: 'topic-1',
+            senderId: 'user-a',
+            senderName: 'Alice',
+            senderType: 'user',
+            type: 'file',
+            text: '',
+            attachments: [
+              { type: 'file', name: 'doc.pdf', url: 'https://files.example/doc.pdf' },
+            ],
+            createdAt: Date.now(),
+          },
+        }),
+      );
+      expect(sendMessage).toHaveBeenCalledOnce();
+      expect(sendMessage.mock.calls[0][0].mediaUrls).toBeUndefined();
+      expect(sendMessage.mock.calls[0][0].mediaTypes).toBeUndefined();
     });
 
     it('uses local transcriber fallback for audio when upstream transcription is pending', async () => {

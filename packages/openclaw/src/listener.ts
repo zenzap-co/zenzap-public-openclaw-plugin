@@ -288,6 +288,32 @@ export class ZenzapListener {
     return null;
   }
 
+  private static MEDIA_ATTACHMENT_TYPES = new Set<string>(['image', 'video']);
+
+  private static MIME_TYPE_MAP: Record<string, string> = {
+    image: 'image/jpeg',
+    video: 'video/mp4',
+  };
+
+  private extractMediaFromAttachments(attachments: ZenzapAttachment[]): {
+    mediaUrls: string[];
+    mediaTypes: string[];
+  } {
+    const mediaUrls: string[] = [];
+    const mediaTypes: string[] = [];
+    for (const attachment of attachments) {
+      if (
+        attachment.url &&
+        attachment.type &&
+        ZenzapListener.MEDIA_ATTACHMENT_TYPES.has(attachment.type)
+      ) {
+        mediaUrls.push(attachment.url);
+        mediaTypes.push(ZenzapListener.MIME_TYPE_MAP[attachment.type] ?? attachment.type);
+      }
+    }
+    return { mediaUrls, mediaTypes };
+  }
+
   private summarizeAttachment(attachment: ZenzapAttachment, index: number): string {
     const parts = [`- #${index + 1}`];
     if (attachment.type) parts.push(`type=${attachment.type}`);
@@ -553,11 +579,13 @@ export class ZenzapListener {
     if (this.ctx.sendMessage) {
       try {
         const attachments = this.normalizeAttachments(msg);
+        const { mediaUrls, mediaTypes } = this.extractMediaFromAttachments(attachments);
         await this.ctx.sendMessage({
           channel: 'zenzap',
           conversation: topic.conversationId,
           source: msg?.senderId,
           text: formattedBody,
+          ...(mediaUrls.length > 0 && { mediaUrls, mediaTypes }),
           timestamp: new Date(msg?.updatedAt || msg?.createdAt || Date.now()).toISOString(),
           metadata: {
             topicId: topic.id,
