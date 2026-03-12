@@ -613,6 +613,12 @@ export class ZenzapListener {
       try {
         const attachments = this.normalizeAttachments(msg);
         const { mediaUrls, mediaTypes } = this.extractMediaFromAttachments(attachments);
+        if (mediaUrls.length > 0) {
+          this.log('info', `Attaching ${mediaUrls.length} media item(s) for message ${msg?.id}`, {
+            mediaUrls,
+            mediaTypes,
+          });
+        }
         await this.ctx.sendMessage({
           channel: 'zenzap',
           conversation: topic.conversationId,
