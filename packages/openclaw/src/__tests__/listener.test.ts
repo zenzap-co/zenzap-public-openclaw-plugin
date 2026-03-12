@@ -299,7 +299,42 @@ describe('ZenzapListener', () => {
       expect(sendMessage.mock.calls[0][0].mediaUrls).toEqual([
         'https://files.example/shot.png',
       ]);
-      expect(sendMessage.mock.calls[0][0].mediaTypes).toEqual(['image/jpeg']);
+      expect(sendMessage.mock.calls[0][0].mediaTypes).toEqual(['image/png']);
+    });
+
+    it('infers MIME type from file extension in URL', async () => {
+      const listener = new ZenzapListener({
+        config: { apiKey: 't', apiSecret: 's', apiUrl: 'http://x', pollTimeout: 1 },
+        sendMessage,
+      });
+      await listener['onEvent'](
+        makeEvent('message.created', {
+          message: {
+            id: `msg-${Date.now()}`,
+            topicId: 'topic-1',
+            senderId: 'user-a',
+            senderName: 'Alice',
+            senderType: 'user',
+            type: 'image',
+            text: '',
+            attachments: [
+              { type: 'image', url: 'https://files.example/photo.webp?token=abc' },
+              { type: 'video', name: 'clip.mov', url: 'https://files.example/clip' },
+            ],
+            createdAt: Date.now(),
+          },
+        }),
+      );
+      expect(sendMessage).toHaveBeenCalledOnce();
+      expect(sendMessage.mock.calls[0][0].mediaUrls).toEqual([
+        'https://files.example/photo.webp?token=abc',
+        'https://files.example/clip',
+      ]);
+      // webp from URL extension, mov from name (URL has no extension)
+      expect(sendMessage.mock.calls[0][0].mediaTypes).toEqual([
+        'image/webp',
+        'video/quicktime',
+      ]);
     });
 
     it('does not include mediaUrls for non-media attachments', async () => {

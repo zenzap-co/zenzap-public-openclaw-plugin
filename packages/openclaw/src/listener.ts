@@ -290,10 +290,43 @@ export class ZenzapListener {
 
   private static MEDIA_ATTACHMENT_TYPES = new Set<string>(['image', 'video']);
 
-  private static MIME_TYPE_MAP: Record<string, string> = {
+  private static EXT_MIME_MAP: Record<string, string> = {
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    png: 'image/png',
+    gif: 'image/gif',
+    webp: 'image/webp',
+    svg: 'image/svg+xml',
+    bmp: 'image/bmp',
+    tiff: 'image/tiff',
+    tif: 'image/tiff',
+    ico: 'image/x-icon',
+    heic: 'image/heic',
+    heif: 'image/heif',
+    avif: 'image/avif',
+    mp4: 'video/mp4',
+    webm: 'video/webm',
+    mov: 'video/quicktime',
+    avi: 'video/x-msvideo',
+    mkv: 'video/x-matroska',
+    '3gp': 'video/3gpp',
+  };
+
+  private static FALLBACK_MIME: Record<string, string> = {
     image: 'image/jpeg',
     video: 'video/mp4',
   };
+
+  private static inferMimeType(attachment: ZenzapAttachment): string {
+    const source = attachment.name || attachment.url || '';
+    // Strip query string / fragment, then extract extension
+    const clean = source.split(/[?#]/)[0];
+    const ext = clean.split('.').pop()?.toLowerCase();
+    if (ext && ZenzapListener.EXT_MIME_MAP[ext]) {
+      return ZenzapListener.EXT_MIME_MAP[ext];
+    }
+    return ZenzapListener.FALLBACK_MIME[attachment.type!] ?? `${attachment.type}/*`;
+  }
 
   private extractMediaFromAttachments(attachments: ZenzapAttachment[]): {
     mediaUrls: string[];
@@ -308,7 +341,7 @@ export class ZenzapListener {
         ZenzapListener.MEDIA_ATTACHMENT_TYPES.has(attachment.type)
       ) {
         mediaUrls.push(attachment.url);
-        mediaTypes.push(ZenzapListener.MIME_TYPE_MAP[attachment.type] ?? attachment.type);
+        mediaTypes.push(ZenzapListener.inferMimeType(attachment));
       }
     }
     return { mediaUrls, mediaTypes };
