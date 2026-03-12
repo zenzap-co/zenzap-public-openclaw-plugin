@@ -1,6 +1,6 @@
 {
   "name": "@zenzap-co/openclaw-plugin",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Zenzap channel plugin for OpenClaw — AI assistant in your team topics",
   "type": "module",
   "license": "MIT",
