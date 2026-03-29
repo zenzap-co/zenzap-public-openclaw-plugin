@@ -26,6 +26,7 @@ import type {
   ZenzapTask,
   ZenzapPoll,
   ZenzapPollVoteCreateResponse,
+  ZenzapReactionCreateResponse,
   ZenzapTopicMessagesResponse,
   ZenzapMembersListResponse,
   ZenzapTopicsListResponse,
@@ -176,8 +177,23 @@ export class ZenzapClient {
   }
 
   /** POST /v2/messages/:messageId/reactions */
-  async addReaction(messageId: string, reaction: string): Promise<void> {
-    await this.request('POST', `/v2/messages/${messageId}/reactions`, { reaction });
+  async addReaction(messageId: string, reaction: string): Promise<ZenzapReactionCreateResponse> {
+    return this.request('POST', `/v2/messages/${messageId}/reactions`, { reaction });
+  }
+
+  /** DELETE /v2/messages/:messageId/reactions/:reactionId */
+  async removeReaction(messageId: string, reactionId: string): Promise<void> {
+    await this.request('DELETE', `/v2/messages/${messageId}/reactions/${reactionId}`);
+  }
+
+  /** DELETE /v2/messages/:messageId — only the bot that sent the message can delete it */
+  async deleteMessage(messageId: string): Promise<void> {
+    await this.request('DELETE', `/v2/messages/${messageId}`);
+  }
+
+  /** PATCH /v2/messages/:messageId — only the bot that sent the message can edit it */
+  async editMessage(messageId: string, text: string): Promise<ZenzapMessage> {
+    return this.request('PATCH', `/v2/messages/${messageId}`, { text });
   }
 
   /** POST /v2/messages/:messageId/read — no body */

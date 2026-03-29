@@ -5,6 +5,7 @@ export type {
   ZenzapPollOptionSnapshot,
   ZenzapPollSnapshot,
   ZenzapPollVoteCreateResponse,
+  ZenzapReactionCreateResponse,
   ZenzapMessageType,
   ZenzapAttachmentTranscription,
   ZenzapAttachment,
