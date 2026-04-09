@@ -347,8 +347,8 @@ export class ZenzapListener {
     if (attachment.type) parts.push(`type=${attachment.type}`);
     if (attachment.name) parts.push(`name="${attachment.name}"`);
     if (attachment.url) parts.push(`url=${attachment.url}`);
-    if (attachment.transcription?.status)
-      parts.push(`transcription=${attachment.transcription.status}`);
+    if (attachment.transcription?.text?.trim())
+      parts.push(`transcription="${attachment.transcription.text.trim()}"`);
     return parts.join(', ');
   }
 
