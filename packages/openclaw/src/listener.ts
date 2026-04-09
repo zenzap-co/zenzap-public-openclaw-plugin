@@ -11,7 +11,7 @@
 
 import { ZenzapPoller } from './poller.js';
 import { ZenzapClient, type ZenzapAttachment } from '@zenzap-co/sdk';
-import type { AudioTranscriber } from './transcription.js';
+
 
 const AUDIO_TRANSCRIPTION_TIMEOUT_MS = 10_000;
 
@@ -47,11 +47,6 @@ interface ListenerContext {
   /** Called when the poller encounters a fatal/repeated error */
   onPollerError?: (err: Error) => Promise<void>;
   requireMention?: (topicId: string, memberCount: number) => boolean;
-  /**
-   * Optional local transcription fallback (e.g. Whisper) for audio messages when
-   * upstream transcription is still pending.
-   */
-  transcribeAudio?: AudioTranscriber;
   logger?: {
     debug: (msg: string, data?: any) => void;
     info: (msg: string, data?: any) => void;
@@ -72,7 +67,7 @@ export class ZenzapListener {
   private ctx: ListenerContext;
   private topics: Map<string, TopicInfo> = new Map();
   private messageSignatures = new CappedMap<string, string>(5000);
-  private audioTranscriptCache = new CappedMap<string, string>(1000);
+
   private pendingAudioMessages = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor(ctx: ListenerContext) {
@@ -445,53 +440,16 @@ export class ZenzapListener {
     return `Contact: ${parts.join(', ')}`;
   }
 
-  private async transcribeAudioIfNeeded(
-    msg: any,
-    attachments: ZenzapAttachment[],
-  ): Promise<string | null> {
-    if (!this.ctx.transcribeAudio) return null;
-
-    for (const attachment of attachments) {
-      if (attachment?.type !== 'audio' || !attachment?.url) continue;
-      const key = attachment.id || attachment.url;
-      if (this.audioTranscriptCache.has(key)) return this.audioTranscriptCache.get(key) || null;
-
-      try {
-        const transcript = await this.ctx.transcribeAudio(attachment, {
-          topicId: msg?.topicId || 'unknown',
-          messageId: msg?.id,
-          senderId: msg?.senderId,
-        });
-        if (transcript?.trim()) {
-          const cleaned = transcript.trim();
-          this.audioTranscriptCache.set(key, cleaned);
-          return cleaned;
-        }
-      } catch (err: any) {
-        this.log('debug', `Local audio transcription failed: ${err?.message ?? err}`);
-      }
-    }
-    return null;
-  }
-
   /**
    * Resolves the text body for an audio message.
-   * Returns the transcription text if available (from Zenzap or local Whisper),
+   * Returns the transcription text if available from Zenzap server-side transcription,
    * or null if transcription is still pending — signalling the caller to hold and
    * wait for the message.updated event that carries the completed transcription.
    */
-  private async resolveAudioBody(
-    msg: any,
+  private resolveAudioBody(
     attachments: ZenzapAttachment[],
-    rawText: string,
-    details: string[],
-  ): Promise<string | null> {
-    let transcriptionText = this.attachmentTranscriptionText(attachments);
-    if (!transcriptionText && !rawText) {
-      transcriptionText = await this.transcribeAudioIfNeeded(msg, attachments);
-      if (transcriptionText) details.push('Audio transcription source: local-whisper');
-    }
-    return transcriptionText ?? null;
+  ): string | null {
+    return this.attachmentTranscriptionText(attachments) ?? null;
   }
 
   /**
@@ -499,7 +457,7 @@ export class ZenzapListener {
    * Returns null specifically for audio messages where no transcription is available yet,
    * signalling the caller to hold and wait for the message.updated event.
    */
-  private async buildMessageBody(msg: any): Promise<string | null> {
+  private buildMessageBody(msg: any): string | null {
     const messageType = typeof msg?.type === 'string' ? msg.type : 'text';
     const rawText = typeof msg?.text === 'string' ? msg.text.trim() : '';
     const attachments = this.normalizeAttachments(msg);
@@ -509,7 +467,7 @@ export class ZenzapListener {
     if (rawText) body.push(rawText);
 
     if (messageType === 'audio') {
-      const transcriptionText = await this.resolveAudioBody(msg, attachments, rawText, details);
+      const transcriptionText = this.resolveAudioBody(attachments);
       if (!rawText) {
         if (transcriptionText) {
           body.push(transcriptionText);
@@ -711,7 +669,7 @@ export class ZenzapListener {
 
     const mentionRequired = this.shouldRequireMention(topicId, topic.memberCount);
 
-    const formattedBody = await this.buildMessageBody(msg);
+    const formattedBody = this.buildMessageBody(msg);
 
     // null means audio with transcription still pending — hold and wait for message.updated
     if (formattedBody === null) {
