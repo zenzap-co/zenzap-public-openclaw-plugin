@@ -8,7 +8,7 @@ import { createRequire } from 'module';
 import { promises as fsPromises } from 'fs';
 import { ZenzapListener } from './listener.js';
 import { ZenzapClient } from '@zenzap-co/sdk';
-import { createWhisperAudioTranscriber } from './transcription.js';
+
 import { tools, createToolExecutor } from './tools.js';
 
 const CHANNEL_ID = 'zenzap';
@@ -900,7 +900,7 @@ const plugin = {
         }
 
         const pluginCfg = api.config?.plugins?.entries?.[CHANNEL_ID]?.config ?? {};
-        const whisperCfg = pluginCfg.whisper ?? {};
+
         const core = api.runtime;
         const stateDir = core.state.resolveStateDir(api.config);
         const accountIds = getZenzapAccountIds(api.config);
@@ -921,13 +921,6 @@ const plugin = {
           }
 
           const apiUrl = pluginCfg.apiUrl || DEFAULT_API_URL;
-          const transcribeAudio = createWhisperAudioTranscriber({
-            enabled: whisperCfg.enabled ?? true,
-            model: whisperCfg.model || 'base',
-            language: whisperCfg.language || 'en',
-            timeoutMs: typeof whisperCfg.timeoutMs === 'number' ? whisperCfg.timeoutMs : undefined,
-            maxBytes: typeof whisperCfg.maxBytes === 'number' ? whisperCfg.maxBytes : undefined,
-          });
           const controlTopicId: string | undefined = cfg.controlTopicId;
           const botDisplayName = cfg.botName || 'Zenzap Bot';
           botDisplayNameByAccount.set(accountId, botDisplayName);
@@ -1269,7 +1262,7 @@ const plugin = {
               rememberMessageArtifacts(accountId, enriched);
               await debouncer.enqueue(enriched);
             },
-            transcribeAudio,
+
             onBotJoinedTopic: async (
               topicId: string,
               topicName: string,
