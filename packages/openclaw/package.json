@@ -22,8 +22,8 @@
     "build": "tsc",
     "prebuild": "npm run clean",
     "bundle": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --external:crypto --external:path --external:fs --external:os --external:module",
-    "prepack": "pnpm --filter @zenzap-co/sdk run build && pnpm run bundle",
-    "deploy:build": "pnpm bundle",
+    "prepack": "pnpm --filter @zenzap-co/sdk run build && pnpm run build",
+    "deploy:build": "pnpm build",
     "test": "vitest run",
     "test:watch": "vitest"
   },
