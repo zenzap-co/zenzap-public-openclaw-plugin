@@ -38,8 +38,10 @@
     "url": "git+https://github.com/zenzap-co/zenzap-public-openclaw-plugin.git",
     "directory": "packages/openclaw"
   },
+  "dependencies": {
+    "@zenzap-co/sdk": "workspace:*"
+  },
   "devDependencies": {
-    "@zenzap-co/sdk": "workspace:*",
     "@types/node": "^22.0.0",
     "esbuild": "^0.27.3",
     "typescript": "^5.3.0",
