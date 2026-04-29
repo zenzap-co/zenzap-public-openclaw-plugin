@@ -5,8 +5,8 @@
 import { createHash } from 'crypto';
 import { join } from 'path';
 import { createRequire } from 'module';
-import { promises as fsPromises } from 'fs';
 import { ZenzapListener } from './listener.js';
+import { clearSessionFile } from './session-cleanup.js';
 import { ZenzapClient } from '@zenzap-co/sdk';
 
 import { tools, createToolExecutor } from './tools.js';
@@ -1165,12 +1165,11 @@ const plugin = {
                     );
                   if (!isRetry && isCorruptSession && storePath) {
                     const sessionFile = `${storePath}/${route.sessionKey}.jsonl`;
-                    try {
-                      await fsPromises.access(sessionFile);
+                    const cleared = await clearSessionFile(sessionFile);
+                    if (cleared) {
                       console.warn(
-                        `[Zenzap] Corrupted session detected for ${topicId}, clearing and retrying...`,
+                        `[Zenzap] Corrupted session detected for ${topicId}, cleared and retrying...`,
                       );
-                      await fsPromises.unlink(sessionFile);
                       if (accountNotifyControl) {
                         accountNotifyControl(
                           `⚠️ Cleared corrupted session for topic ${topicId}, retrying...`,
@@ -1178,8 +1177,6 @@ const plugin = {
                       }
                       await tryDispatch(true);
                       return;
-                    } catch {
-                      /* file doesn't exist, fall through */
                     }
                   }
                   throw err;
