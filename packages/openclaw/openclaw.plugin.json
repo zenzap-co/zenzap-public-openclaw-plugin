@@ -8,7 +8,7 @@
     "properties": {
       "apiUrl": {
         "type": "string",
-        "description": "Zenzap API base URL — only set for self-hosted deployments (default: https://api.zenzap.co)"
+        "description": "Zenzap API base URL — set automatically when a token carries a hostname, or manually for self-hosted deployments (default: https://api.zenzap.co)"
       }
     }
   },
