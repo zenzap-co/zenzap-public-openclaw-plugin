@@ -36,15 +36,23 @@ function decodeToken(token: string): {
   controlChannelId: string;
   apiKey: string;
   apiSecret: string;
+  apiUrl?: string;
 } {
   const decoded = Buffer.from(token.trim(), 'base64').toString('utf8');
   const parts = decoded.split(':');
-  if (parts.length !== 3)
-    throw new Error('Invalid token: expected 3 colon-separated parts after decoding');
-  const [controlChannelId, apiKey, apiSecret] = parts;
+  if (parts.length !== 3 && parts.length !== 4)
+    throw new Error('Invalid token: expected 3 or 4 colon-separated parts after decoding');
+  const [controlChannelId, apiKey, apiSecret, host] = parts;
   if (!controlChannelId || !apiKey || !apiSecret)
-    throw new Error('Invalid token: all parts must be non-empty');
-  return { controlChannelId, apiKey, apiSecret };
+    throw new Error('Invalid token: controlChannelId, apiKey, and apiSecret must be non-empty');
+  if (parts.length === 4) {
+    if (!host)
+      throw new Error('Invalid token: hostname (4th part) must be non-empty when present');
+    if (/[\s:/]/.test(host))
+      throw new Error('Invalid token: hostname must be a bare host (no scheme, port, or path)');
+  }
+  const apiUrl = host ? `https://${host.trim()}` : undefined;
+  return { controlChannelId, apiKey, apiSecret, apiUrl };
 }
 
 function safeSerializeToolResult(value: any): string {
@@ -472,6 +480,7 @@ async function runSetupFlow(
   let apiKey: string;
   let apiSecret: string;
   let controlChannelId: string | undefined;
+  let tokenApiUrl: string | undefined;
 
   if (mode === 'token') {
     const rawToken: string = await prompter.text({
@@ -490,6 +499,7 @@ async function runSetupFlow(
     controlChannelId = decoded.controlChannelId;
     apiKey = decoded.apiKey;
     apiSecret = decoded.apiSecret;
+    tokenApiUrl = decoded.apiUrl;
   } else {
     await prompter.note(
       'In Zenzap, go to My Apps → Agents → select your agent to find your API Key and Secret.',
@@ -509,7 +519,7 @@ async function runSetupFlow(
     });
   }
 
-  let apiUrl: string = pluginConfig.apiUrl ?? DEFAULT_API_URL;
+  let apiUrl: string = pluginConfig.apiUrl ?? tokenApiUrl ?? DEFAULT_API_URL;
   if (mode === 'manual') {
     apiUrl = await prompter.text({
       message: 'API URL',
@@ -598,7 +608,13 @@ async function runSetupFlow(
     );
   }
 
-  const pluginPatch = mode === 'manual' ? { apiUrl: apiUrl.trim() } : undefined;
+  const trimmedApiUrl = apiUrl.trim();
+  const pluginPatch =
+    mode === 'manual'
+      ? { apiUrl: trimmedApiUrl }
+      : trimmedApiUrl !== DEFAULT_API_URL
+        ? { apiUrl: trimmedApiUrl }
+        : undefined;
 
   await writeConfig(
     {
@@ -621,9 +637,9 @@ async function runTokenSetup(
   _existingConfig: any = {},
   pluginConfig: any = {},
 ): Promise<{ botName?: string; controlTopicId?: string }> {
-  const { controlChannelId, apiKey, apiSecret } = decodeToken(token);
+  const { controlChannelId, apiKey, apiSecret, apiUrl: tokenApiUrl } = decodeToken(token);
 
-  const apiUrl = pluginConfig.apiUrl ?? DEFAULT_API_URL;
+  const apiUrl = pluginConfig.apiUrl ?? tokenApiUrl ?? DEFAULT_API_URL;
   const client = new ZenzapClient({ apiKey: apiKey.trim(), apiSecret: apiSecret.trim(), apiUrl });
 
   const me = await client.getCurrentMember();
@@ -1439,7 +1455,7 @@ const plugin = {
               .description('Interactive setup: configure API credentials and control topic')
               .option(
                 '--token <base64>',
-                'Base64-encoded token (controlchannelid:apikey:apisecret) — skips all prompts',
+                'Base64-encoded token (controlchannelid:apikey:apisecret[:hostname]) — skips all prompts',
               )
               .option('--account <id>', 'Configure a named Zenzap account (default: default)')
               .option('--api-url <url>', 'Override the default Zenzap API URL')
