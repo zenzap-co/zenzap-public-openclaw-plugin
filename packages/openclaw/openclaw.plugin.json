@@ -2,6 +2,31 @@
   "id": "zenzap",
   "channels": ["zenzap"],
   "skills": ["./skills/zenzap"],
+  "contracts": {
+    "tools": [
+      "zenzap_get_me",
+      "zenzap_send_message",
+      "zenzap_send_image",
+      "zenzap_create_topic",
+      "zenzap_get_topic",
+      "zenzap_update_topic",
+      "zenzap_add_members",
+      "zenzap_remove_members",
+      "zenzap_get_member",
+      "zenzap_list_members",
+      "zenzap_list_topics",
+      "zenzap_list_tasks",
+      "zenzap_get_task",
+      "zenzap_create_task",
+      "zenzap_create_poll",
+      "zenzap_cast_poll_vote",
+      "zenzap_delete_poll_vote",
+      "zenzap_update_task",
+      "zenzap_get_messages",
+      "zenzap_react",
+      "zenzap_set_mention_policy"
+    ]
+  },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
