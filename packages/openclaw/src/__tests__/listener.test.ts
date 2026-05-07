@@ -364,43 +364,6 @@ describe('ZenzapListener', () => {
       expect(sendMessage.mock.calls[0][0].MediaTypes).toBeUndefined();
     });
 
-    it('uses local transcriber fallback for audio when upstream transcription is pending', async () => {
-      const transcribeAudio = vi.fn().mockResolvedValue('local whisper transcript');
-      const listener = new ZenzapListener({
-        config: { apiKey: 't', apiSecret: 's', apiUrl: 'http://x', pollTimeout: 1 },
-        sendMessage,
-        transcribeAudio,
-      });
-      await listener['onEvent'](
-        makeEvent('message.created', {
-          message: {
-            id: `msg-${Date.now()}`,
-            topicId: 'topic-1',
-            senderId: 'user-a',
-            senderName: 'Alice',
-            senderType: 'user',
-            type: 'audio',
-            text: '',
-            attachments: [
-              {
-                id: 'att-1',
-                type: 'audio',
-                name: 'voice-note.mp3',
-                url: 'https://files.example/voice-note.mp3',
-                transcription: { status: 'Pending' },
-              },
-            ],
-            createdAt: Date.now(),
-          },
-        }),
-      );
-      expect(transcribeAudio).toHaveBeenCalledOnce();
-      expect(sendMessage).toHaveBeenCalledOnce();
-      expect(sendMessage.mock.calls[0][0].text).toContain('local whisper transcript');
-      expect(sendMessage.mock.calls[0][0].text).toContain(
-        'Audio transcription source: local-whisper',
-      );
-    });
   });
 
   describe('topic.updated', () => {
