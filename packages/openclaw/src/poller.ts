@@ -1,16 +1,14 @@
 /**
  * Zenzap Long-Polling Handler
  *
- * Persists the Pulsar offset to disk (same pattern as Telegram's update-offset-store)
- * so restarts resume from where they left off instead of replaying old messages.
+ * Persists the Pulsar offset (via ./offset-store.js) so restarts resume from
+ * where they left off instead of replaying old messages. Filesystem I/O lives
+ * in offset-store on purpose — this module stays network-only so the bundled
+ * output never has fs+fetch in the same file.
  */
 
 import { createHmac } from 'crypto';
-import { promises as fs } from 'fs';
-import { join, dirname } from 'path';
-import { randomUUID } from 'crypto';
-
-const STORE_VERSION = 1;
+import { readOffsetFromDisk, writeOffsetToDisk, deleteOffsetFile } from './offset-store.js';
 
 interface PollConfig {
   apiKey: string;
@@ -28,34 +26,6 @@ interface UpdateResponse {
     data: any;
   }>;
   nextOffset: string;
-}
-
-async function readOffsetFromDisk(filePath: string): Promise<string | null> {
-  try {
-    const raw = await fs.readFile(filePath, 'utf-8');
-    const parsed = JSON.parse(raw);
-    if (parsed?.version !== STORE_VERSION) return null;
-    return parsed.lastOffset ?? null;
-  } catch (err: any) {
-    if (err.code === 'ENOENT') return null;
-    return null;
-  }
-}
-
-async function writeOffsetToDisk(filePath: string, offset: string): Promise<void> {
-  try {
-    const dir = dirname(filePath);
-    await fs.mkdir(dir, { recursive: true, mode: 0o700 });
-    const tmp = join(dir, `${filePath.split('/').pop()}.${randomUUID()}.tmp`);
-    await fs.writeFile(
-      tmp,
-      JSON.stringify({ version: STORE_VERSION, lastOffset: offset }, null, 2) + '\n',
-      'utf-8',
-    );
-    await fs.rename(tmp, filePath);
-  } catch (err) {
-    console.error('[Zenzap Poller] Failed to persist offset:', err);
-  }
 }
 
 export class ZenzapPoller {
@@ -150,7 +120,7 @@ export class ZenzapPoller {
       console.warn('[Zenzap Poller] 409 Conflict — saved offset expired, resetting to latest');
       this.offset = null;
       if (this.config.offsetFile) {
-        await fs.unlink(this.config.offsetFile).catch(() => {});
+        await deleteOffsetFile(this.config.offsetFile);
       }
       return { updates: [], nextOffset: '' };
     }
