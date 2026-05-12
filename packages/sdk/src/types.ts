@@ -142,6 +142,13 @@ export interface ZenzapPollSnapshot {
   expiresAt?: number;
 }
 
+export interface ZenzapReactionCreateResponse {
+  id: string;
+  messageId: string;
+  reaction: string;
+  createdAt: number;
+}
+
 export interface ZenzapPollVoteCreateResponse {
   id: string;
   attachmentId: string;

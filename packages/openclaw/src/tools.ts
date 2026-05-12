@@ -403,6 +403,47 @@ export const tools = [
       required: ['messageId', 'reaction'],
     },
   },
+  {
+    id: 'zenzap_remove_reaction',
+    name: 'Remove Reaction from Zenzap Message',
+    description:
+      'Remove a reaction from a message by its reaction ID. Only the bot that added the reaction can remove it.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        messageId: { type: 'string', description: 'UUID of the message the reaction belongs to' },
+        reactionId: { type: 'string', description: 'UUID of the reaction to remove' },
+      },
+      required: ['messageId', 'reactionId'],
+    },
+  },
+  {
+    id: 'zenzap_delete_message',
+    name: 'Delete Zenzap Message',
+    description:
+      'Delete a message by ID. Only the bot that sent the message can delete it.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        messageId: { type: 'string', description: 'UUID of the message to delete' },
+      },
+      required: ['messageId'],
+    },
+  },
+  {
+    id: 'zenzap_edit_message',
+    name: 'Edit Zenzap Message',
+    description:
+      'Edit the text of a message. Only the bot that sent the message can edit it. Edited messages will have an Edited marker.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        messageId: { type: 'string', description: 'UUID of the message to edit' },
+        text: { type: 'string', description: 'New message text (max 10000 characters, cannot be empty)' },
+      },
+      required: ['messageId', 'text'],
+    },
+  },
 ];
 
 const ACCOUNT_ID_SCHEMA = {
@@ -524,6 +565,31 @@ export function createToolExecutor(resolveClient: ClientResolver) {
 
       case 'zenzap_react':
         return client.addReaction(input.messageId, input.reaction);
+
+      case 'zenzap_remove_reaction': {
+        const messageId = typeof input?.messageId === 'string' ? input.messageId.trim() : '';
+        const reactionId = typeof input?.reactionId === 'string' ? input.reactionId.trim() : '';
+        if (!messageId) throw new Error('messageId is required and must be a non-empty string.');
+        if (!reactionId) throw new Error('reactionId is required and must be a non-empty string.');
+        await client.removeReaction(messageId, reactionId);
+        return { ok: true };
+      }
+
+      case 'zenzap_delete_message': {
+        const messageId = typeof input?.messageId === 'string' ? input.messageId.trim() : '';
+        if (!messageId) throw new Error('messageId is required and must be a non-empty string.');
+        await client.deleteMessage(messageId);
+        return { ok: true };
+      }
+
+      case 'zenzap_edit_message': {
+        const messageId = typeof input?.messageId === 'string' ? input.messageId.trim() : '';
+        if (!messageId) throw new Error('messageId is required and must be a non-empty string.');
+        if (typeof input?.text !== 'string' || !input.text.trim()) {
+          throw new Error('text is required and cannot be empty.');
+        }
+        return client.editMessage(messageId, input.text);
+      }
 
       case 'zenzap_create_task':
         return client.createTask({
